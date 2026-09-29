@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 SRC_DIR = Path(__file__).resolve().parent.parent
 REPO_DIR = SRC_DIR.parent
 
@@ -9,11 +11,23 @@ def env_bool(name, default):
     return os.environ.get(name, str(default)).lower() in ("1", "true", "yes", "on")
 
 
-# The default key only exists so a fresh clone boots; set DJANGO_SECRET_KEY
-# for anything beyond a laptop demo.
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-not-secret-change-me")
 DEBUG = env_bool("DJANGO_DEBUG", False)
+# The default key only exists so a demo or a dev checkout boots. A real
+# deployment (demo mode and DEBUG both off) refuses to start without one.
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
+if not SECRET_KEY:
+    if not (DEBUG or env_bool("DOGFOOD_SEED_SESSIONS", False)):
+        raise ImproperlyConfigured("set DJANGO_SECRET_KEY (or DOGFOOD_SEED_SESSIONS=1 for the demo)")
+    SECRET_KEY = "dev-only-not-secret-change-me"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]").split(",")
+CSRF_TRUSTED_ORIGINS = [o for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o]
+
+# Behind a TLS-terminating proxy: secure cookies, trust X-Forwarded-Proto, HSTS.
+if env_bool("DJANGO_HTTPS", False):
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "31536000"))
 
 INSTALLED_APPS = [
     "django.contrib.auth",

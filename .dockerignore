@@ -5,3 +5,8 @@
 .pytest_cache
 .claude
 tests
+notes
+.cache
+media
+docs
+HANDOFF.md

@@ -2,10 +2,16 @@ services:
   portal:
     build: .
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"  # this machine only; put a TLS proxy in front to expose it
     environment:
-      # Writes the four fixed test sessions from .dogfood.toml. Demo only;
-      # set to 0 (and set a real DJANGO_SECRET_KEY) for a real event.
+      # Demo mode. Turns on, for the judges' click-through and the checker:
+      #   - the four fixed sessions from .dogfood.toml (anyone with the cookie is that user)
+      #   - the demo password (DOGFOOD_DEMO_PASSWORD) on the 5 seeded accounts
+      #   - the admin@example.org superuser
+      #   - the /demo/login role switcher
+      #   - a built-in, public SECRET_KEY
+      # For a real event set it to "0" and set DJANGO_SECRET_KEY; the next boot
+      # deletes the fixed sessions, disables the demo passwords and the admin.
       DOGFOOD_SEED_SESSIONS: "1"
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,[::1],0.0.0.0"
       DJANGO_CACHE_DIR: /data/cache

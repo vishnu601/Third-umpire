@@ -202,3 +202,24 @@ def test_residual_bootstrap_on_an_exact_design_has_no_spread():
     r = analyse(points, prior_weight=0, draws=50)
     for x in r.ranking():
         assert x.rank_lo == x.rank_hi == x.rank
+
+
+# --- configuration ------------------------------------------------------------------------------
+
+
+def _import_settings(**env):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    clean = {k: v for k, v in os.environ.items() if not k.startswith(("DJANGO_", "DOGFOOD_"))} | env
+    src = Path(__file__).resolve().parent.parent / "src"
+    return subprocess.run([sys.executable, "-c", "import config.settings"], cwd=src, env=clean, capture_output=True, text=True)
+
+
+def test_a_real_deployment_will_not_start_without_a_secret_key():
+    refused = _import_settings()
+    assert refused.returncode != 0 and "DJANGO_SECRET_KEY" in refused.stderr
+    assert _import_settings(DJANGO_SECRET_KEY="k" * 50).returncode == 0
+    assert _import_settings(DOGFOOD_SEED_SESSIONS="1").returncode == 0

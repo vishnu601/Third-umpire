@@ -46,8 +46,10 @@ live in `notes/HACKATHON-BRIEF.md` (git-ignored).
    passing against a running portal.
 2. **API routes never redirect.** Anything under `/api/` answers with JSON
    and an explicit status: 401 when not logged in, 403 when logged in but not
-   allowed. Never `login_required` (it 302s to a login page). Use the
-   decorators in `src/portal/api.py`.
+   allowed. Never `login_required` (it 302s to a login page). Wrap views in
+   `@api_view` from `src/portal/api.py` and check access with its
+   `require_login` and the `organizer_event` helper in `views.py`; rules
+   themselves live in `services.py` and raise `Refused`.
 3. **Scores are scoped to the logged-in judge.** Every query that reads
    scores for a judge filters on `request.user`. If a request names another
    judge (query param, path, anything), return 403, even if that judge does
@@ -66,9 +68,20 @@ live in `notes/HACKATHON-BRIEF.md` (git-ignored).
    every feature in that tier (see SPEC.md section 3) is built and tested,
    not just when the checker passes. Record gaps in the README.
 
-## Seeded sessions
+## Seeded sessions (demo mode)
 
-`manage.py seed` writes four fixed session rows (organizer, judge_a, judge_b,
-participant) so the checker can attach `Cookie: session=...` without logging
-in. This is a demo convenience controlled by `DOGFOOD_SEED_SESSIONS`
-(on in docker-compose). A real deployment must turn it off.
+`DOGFOOD_SEED_SESSIONS=1` (on in docker-compose) turns on demo mode. `manage.py
+seed` then:
+
+- writes four fixed session rows (organizer, judge_a, judge_b, participant) so
+  the checker can attach `Cookie: session=...` without logging in;
+- sets `DOGFOOD_DEMO_PASSWORD` on the 5 seeded login accounts;
+- makes `admin@example.org` an active superuser;
+- enables the `/demo/login` role switcher;
+- lets the app boot with a built-in, public `SECRET_KEY`.
+
+A real deployment must turn it off and set `DJANGO_SECRET_KEY` (settings
+refuse to load without one unless demo mode or DEBUG is on). With demo mode
+off, `seed` revokes all of the above on the next boot: it deletes the fixed
+sessions, makes the demo password unusable wherever it is still set, and
+disables the admin. Passwords people chose themselves are kept.
