@@ -44,8 +44,8 @@ already reviewed *another* contested project.
 **Why connectivity matters.** Bias correction compares projects through the judges they share. If judges and
 projects split into groups with no judge in common, scores across groups cannot be compared, by any method. The
 dashboard counts these groups (*Can every project be compared?*) and the results page warns if there is more
-than one. The fixture is one connected group: 30 judges × 41 projects. Judges who cover two tracks are what hold it
-together.
+than one. The fixture is one connected group: 29 judges × 41 projects (the flat judge jdg_07 doesn't count as a link,
+since its reviews are left out of the fit). Judges who cover two tracks are what hold it together.
 
 ## 2. Scoring
 
