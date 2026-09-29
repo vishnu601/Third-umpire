@@ -1,5 +1,5 @@
 {% extends "portal/base.html" %}
-{% block title %}{% if project %}Edit {{ project.title }}{% else %}New project{% endif %} · Dogfood portal{% endblock %}
+{% block title %}{% if project %}Edit {{ project.title }}{% else %}New project{% endif %} · Third Umpire{% endblock %}
 {% block content %}
 <p class="small"><a href="/teams/{{ team.external_id }}">← {{ team.name }}</a></p>
 <h1>{% if project %}Edit project{% else %}Start your project{% endif %}</h1>

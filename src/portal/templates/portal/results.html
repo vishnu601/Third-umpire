@@ -4,7 +4,7 @@
 <p class="small"><a href="/events/{{ event.external_id }}">← {{ event.name }}</a></p>
 <h1>Results</h1>
 {% if organizer and not event.results_published %}<p><span class="badge warn">Not published</span> <span class="muted small">Only organizers can see this page. Publish it from <a href="/events/{{ event.external_id }}/manage">Manage</a>.</span></p>{% endif %}
-<p class="muted">Scores are corrected for judge leniency with a two-way model: every review is read as <em>project quality + judge leniency + noise</em>, estimated together from the projects judges share. The score is what a project would have averaged with judges of average leniency. Rank bands and chances come from {{ analysis.draws }} bootstrap resamples of each project's reviews.</p>
+<p class="muted">Scores are corrected for judge leniency with a two-way model: every review is read as <em>project quality + judge leniency + noise</em>, estimated together from the projects judges share. The score is what a project would have averaged with judges of average leniency. Rank bands and chances come from {{ analysis.draws }} resamples of the model's noise, refitting each time, so uncertainty in every judge's leniency is included. Method and proof: JUDGING.md.</p>
 
 {% if analysis.contested_boundary %}
 <div class="card" style="border-color:var(--warn)">

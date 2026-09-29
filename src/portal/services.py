@@ -821,7 +821,7 @@ def integrity_report(event):
     ]
     close = event.submissions_close
     last_minute = [
-        {"project": p, "before_close": close - p.submitted_at}
+        {"project": p, "before_close": close - p.submitted_at, "minutes": int((close - p.submitted_at).total_seconds() // 60)}
         for p in submitted
         if p.submitted_at and close - LAST_MINUTE <= p.submitted_at <= close
     ]

@@ -22,7 +22,7 @@
   </div>
   <div class="card">
     <h3 style="margin-top:0">Flat judges {% if ig.flat_judges %}<span class="badge warn">{{ ig.flat_judges|length }}</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
-    {% for f in ig.flat_judges %}<div class="small">{{ f.role.external_id }} gave all {{ f.reviews }} projects the same score ({{ f.score|floatformat:2 }}). These reviews carry no ranking information; the results model keeps them, but they cannot move one project above another.</div>{% empty %}<div class="small muted">No judge scored everything the same.</div>{% endfor %}
+    {% for f in ig.flat_judges %}<div class="small">{{ f.role.external_id }} gave all {{ f.reviews }} projects the same score ({{ f.score|floatformat:2 }}). A constant ballot says nothing about which project is better, so these reviews are left out of the bias model (still counted here and in the exports).</div>{% empty %}<div class="small muted">No judge scored everything the same.</div>{% endfor %}
   </div>
   <div class="card">
     <h3 style="margin-top:0">Possible duplicate submissions {% if ig.duplicates %}<span class="badge warn">{{ ig.duplicates|length }}</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
@@ -30,7 +30,7 @@
   </div>
   <div class="card">
     <h3 style="margin-top:0">Deadline edge {% if ig.late %}<span class="badge bad">{{ ig.late|length }} late</span>{% elif ig.last_minute %}<span class="badge">{{ ig.last_minute|length }} last-minute</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
-    {% for x in ig.last_minute %}<div class="small">{{ x.project.external_id }} ({{ x.project.title }}) submitted {{ x.before_close }} before the deadline.</div>{% endfor %}
+    {% for x in ig.last_minute %}<div class="small">{{ x.project.external_id }} ({{ x.project.title }}) submitted {{ x.minutes }} min before the deadline.</div>{% endfor %}
     {% for x in ig.late %}<div class="small" style="color:var(--bad)">{{ x.external_id }} has a submission time after the deadline.</div>{% endfor %}
     {% if not ig.late and not ig.last_minute %}<div class="small muted">Nothing in the last 10 minutes.</div>{% endif %}
   </div>
