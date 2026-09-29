@@ -40,7 +40,8 @@ not built and not claimed.
 
 ## Try it (demo mode)
 
-**Hosted sandbox:** [`render.yaml`](render.yaml) deploys the same container, in demo mode, to Render's free plan in
+**Live demo: https://third-umpire.onrender.com** (click a role in the yellow bar; the first load after idle takes
+about a minute). [`render.yaml`](render.yaml) deploys the same container, in demo mode, to Render's free plan in
 one click ([Deploy to Render](https://render.com/deploy?repo=https://github.com/vishnu601/Third-umpire)). Anyone
 can switch to any role there, which is the point of a sandbox. The free plan's disk is wiped whenever the instance
 sleeps or restarts, and every boot re-seeds a clean event. The first visit after a sleep takes about a minute.
