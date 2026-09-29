@@ -86,6 +86,7 @@ STATIC_URL = "/static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.environ.get("DJANGO_MEDIA_ROOT", str(REPO_DIR / "media"))
 DATA_UPLOAD_MAX_MEMORY_SIZE = 16 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FILES = 10
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},

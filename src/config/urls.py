@@ -1,7 +1,5 @@
-from django.conf import settings
 from django.contrib.auth import views as auth_views
 from django.urls import path, re_path
-from django.views.static import serve
 from django.views.generic import RedirectView
 
 from portal import pages, views
@@ -10,7 +8,7 @@ from portal.forms import EmailAuthenticationForm
 urlpatterns = [
     path("", RedirectView.as_view(url="/projects", permanent=False)),
     path("healthz", pages.health),
-    re_path(r"^media/(?P<path>.+)$", serve, {"document_root": settings.MEDIA_ROOT}),
+    re_path(r"^media/(?P<path>.+)$", pages.media, name="media"),
     path("demo/login", pages.demo_login, name="demo-login"),
     # accounts
     path("login", auth_views.LoginView.as_view(template_name="portal/login.html", authentication_form=EmailAuthenticationForm), name="login"),

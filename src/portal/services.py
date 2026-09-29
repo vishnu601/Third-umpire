@@ -7,12 +7,14 @@ same answer whether it is reached by a form post or by curl.
 import hashlib
 from collections import defaultdict
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.conf import settings
 from django.core.cache import cache
+from django.core.files.storage import default_storage
 from django.db.models import Count, Max
 from django.utils import timezone
 from django.utils.text import slugify
@@ -25,8 +27,10 @@ from .models import (
     Criterion,
     CriterionScore,
     Event,
+    EventQuestion,
     EventRole,
     JudgeInvite,
+    Prize,
     Project,
     ProjectAnswer,
     ProjectImage,
@@ -34,6 +38,7 @@ from .models import (
     Tag,
     Team,
     TeamMembership,
+    Track,
     mint_id,
 )
 
@@ -173,6 +178,155 @@ def set_results_published(event, actor, published):
     audit(event, actor, "results.published" if published else "results.unpublished", event.external_id)
 
 
+# --- event setup: tracks, prizes, rubric, questions ------------------------------------------
+
+
+def _required_text(value, field, limit=200):
+    text = str(value or "").strip()[:limit]
+    if not text:
+        raise Refused(400, f"missing_{field}", f"{field} is required")
+    return text
+
+
+@transaction.atomic
+def add_track(event, actor, name):
+    require_organizer(actor, event)
+    track = Track.objects.create(event=event, external_id=mint_id("trk"), name=_required_text(name, "name"))
+    audit(event, actor, "track.added", track.external_id, name=track.name)
+    return track
+
+
+@transaction.atomic
+def delete_track(event, actor, track):
+    require_organizer(actor, event)
+    if track.projects.exists():
+        raise Refused(409, "track_in_use", "projects are entered in this track; move them first")
+    if track.prizes.exists():
+        raise Refused(409, "track_in_use", "a prize is tied to this track; delete or move the prize first")
+    if track.judges.exists():
+        raise Refused(409, "track_in_use", "judges cover this track; change their tracks first")
+    external_id, name = track.external_id, track.name
+    track.delete()
+    audit(event, actor, "track.deleted", external_id, name=name)
+
+
+@transaction.atomic
+def add_prize(event, actor, name, value="", track_id=None):
+    require_organizer(actor, event)
+    track = None
+    if track_id:
+        track = event.tracks.filter(external_id=track_id).first()
+        if track is None:
+            raise Refused(400, "unknown_track")
+    prize = Prize.objects.create(
+        event=event,
+        name=_required_text(name, "name"),
+        value=str(value or "").strip()[:100],
+        track=track,
+        position=event.prizes.count(),
+    )
+    audit(event, actor, "prize.added", prize.pk, name=prize.name, value=prize.value)
+    return prize
+
+
+@transaction.atomic
+def delete_prize(event, actor, prize):
+    require_organizer(actor, event)
+    pk, name = prize.pk, prize.name
+    prize.delete()
+    audit(event, actor, "prize.deleted", pk, name=name)
+
+
+@transaction.atomic
+def set_weights(event, actor, raw_weights):
+    """raw_weights maps criterion pk to the posted text. Criteria left out keep their weight."""
+    require_organizer(actor, event)
+    criteria = list(event.criteria.all())
+    new = {}
+    for c in criteria:
+        raw = raw_weights.get(c.pk)
+        if raw is None:
+            new[c] = c.weight
+            continue
+        try:
+            w = Decimal(str(raw))
+        except InvalidOperation:
+            raise Refused(400, "invalid_weight", f"weight for {c.name} is not a number")
+        if not w.is_finite() or not (0 <= w <= 100):
+            raise Refused(400, "invalid_weight", "weights must be between 0 and 100")
+        new[c] = w
+    if criteria and sum(new.values()) == 0:
+        raise Refused(400, "invalid_weight", "at least one criterion needs a weight above 0")
+    changed = {}
+    for c, w in new.items():
+        if w != c.weight:
+            changed[c.key] = [str(c.weight), str(w)]
+            c.weight = w
+            c.save(update_fields=["weight"])
+    if changed:
+        audit(event, actor, "rubric.weights_changed", event.external_id, changed=changed)
+    return changed
+
+
+@transaction.atomic
+def add_criterion(event, actor, name):
+    require_organizer(actor, event)
+    name = _required_text(name, "name")
+    key = slugify(name)[:64]
+    if not key:
+        raise Refused(400, "invalid_name", "a criterion name needs at least one letter or digit")
+    if event.criteria.filter(key=key).exists():
+        raise Refused(409, "criterion_exists", "a criterion with that name exists")
+    if Review.objects.filter(project__event=event).exists():
+        raise Refused(409, "rubric_locked", "reviews exist; a new criterion would leave them incomplete")
+    criterion = Criterion.objects.create(event=event, key=key, name=name, position=event.criteria.count())
+    audit(event, actor, "rubric.criterion_added", key, name=name)
+    return criterion
+
+
+@transaction.atomic
+def update_criterion_text(event, actor, criterion, **texts):
+    require_organizer(actor, event)
+    for f in ("description", "anchor_low", "anchor_mid", "anchor_high"):
+        setattr(criterion, f, str(texts.get(f) or "").strip()[:300])
+    criterion.save()
+    audit(event, actor, "rubric.anchors_changed", criterion.key)
+    return criterion
+
+
+@transaction.atomic
+def add_question(event, actor, prompt, help_text="", required=False):
+    require_organizer(actor, event)
+    q = EventQuestion.objects.create(
+        event=event,
+        prompt=_required_text(prompt, "question", 300),
+        help_text=str(help_text or "").strip()[:300],
+        required=bool(required),
+        position=event.questions.count(),
+    )
+    audit(event, actor, "question.added", q.pk, prompt=q.prompt, required=q.required)
+    return q
+
+
+@transaction.atomic
+def delete_question(event, actor, question):
+    require_organizer(actor, event)
+    if question.answers.exclude(answer="").exists():
+        raise Refused(409, "question_answered", "teams have answered this question; mark it optional instead")
+    pk, prompt = question.pk, question.prompt
+    question.delete()
+    audit(event, actor, "question.deleted", pk, prompt=prompt)
+
+
+@transaction.atomic
+def toggle_question(event, actor, question):
+    require_organizer(actor, event)
+    question.required = not question.required
+    question.save(update_fields=["required"])
+    audit(event, actor, "question.changed", question.pk, required=question.required)
+    return question
+
+
 def _jsonable_value(v):
     return v.isoformat() if hasattr(v, "isoformat") else v
 
@@ -220,11 +374,14 @@ def create_team(event, user, name):
         raise Refused(403, "judges_cannot_compete", "judges of this event cannot join a team in it")
     if team_of(user, event):
         raise Refused(409, "already_on_a_team", "you are already on a team in this event")
-    with transaction.atomic():
-        team = Team.objects.create(event=event, external_id=mint_id("tm"), name=name)
-        TeamMembership.objects.create(team=team, user=user)
-        grant_role(event, user, EventRole.Role.PARTICIPANT, actor=user)
-        audit(event, user, "team.created", team.external_id, name=name)
+    try:
+        with transaction.atomic():
+            team = Team.objects.create(event=event, external_id=mint_id("tm"), name=name)
+            TeamMembership.objects.create(team=team, user=user)
+            grant_role(event, user, EventRole.Role.PARTICIPANT, actor=user)
+            audit(event, user, "team.created", team.external_id, name=name)
+    except IntegrityError:  # a concurrent create or join won the race for this user
+        raise Refused(409, "already_on_a_team", "you are already on a team in this event")
     return team
 
 
@@ -260,7 +417,8 @@ def rotate_invite(team, user):
 MAX_TAGS = 10
 MAX_GALLERY_IMAGES = 6
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
-IMAGE_FORMATS = {"JPEG", "PNG", "GIF", "WEBP"}
+IMAGE_FORMATS = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}
+MAX_UPLOAD_BYTES = (1 + MAX_GALLERY_IMAGES) * MAX_IMAGE_BYTES + 1024 * 1024  # a whole project form
 
 
 def clean_url(value, label):
@@ -324,7 +482,8 @@ def clean_answers(event, data):
     for q in event.questions.all():
         key = f"answer_{q.pk}"
         if key in data or str(q.pk) in posted:
-            text = str(data.get(key) if key in data else posted.get(str(q.pk)) or "").strip()
+            raw = data.get(key) if key in data else posted.get(str(q.pk))
+            text = ("" if raw is None else str(raw)).strip()
             if len(text) > 5000:
                 raise Refused(400, "answer_too_long", f"answer to \"{q.prompt}\" is at most 5,000 characters")
             out[q] = text
@@ -333,7 +492,7 @@ def clean_answers(event, data):
 
 def check_image(upload, label):
     if upload.size > MAX_IMAGE_BYTES:
-        raise Refused(400, "image_too_large", f"{label} must be at most 2 MB")
+        raise Refused(400, "image_too_large", f"{label} must be at most {MAX_IMAGE_BYTES // 2**20} MB")
     try:
         with Image.open(upload) as img:
             fmt = img.format
@@ -343,6 +502,10 @@ def check_image(upload, label):
     if fmt not in IMAGE_FORMATS:
         raise Refused(400, "invalid_image", f"{label} must be JPEG, PNG, GIF or WebP")
     upload.seek(0)
+    # The stored name's extension comes from what the bytes are, never from the
+    # client's file name: /media/ picks Content-Type from it, and x.html would
+    # be served as a page.
+    upload.name = "upload" + IMAGE_FORMATS[fmt]
 
 
 def missing_required_answers(project, pending=None):
@@ -383,11 +546,15 @@ def _save_project(project, user, fields, tags, answers, files, submit, created):
             project.submitted_at = timezone.now()
             changed.append("status")
 
+    orphans = []  # files to delete once the new state is saved
     with transaction.atomic():
         if thumbnail:
+            if project.thumbnail:
+                orphans.append(project.thumbnail.name)
             project.thumbnail = thumbnail
             changed.append("thumbnail")
         elif files.get("clear_thumbnail") and project.thumbnail:
+            orphans.append(project.thumbnail.name)
             project.thumbnail = ""
             changed.append("thumbnail")
         project.save()
@@ -404,7 +571,9 @@ def _save_project(project, user, fields, tags, answers, files, submit, created):
             elif made:
                 changed.append(f"answer:{q.pk}")
         if remove:
-            n, _ = project.images.filter(pk__in=[i for i in remove if i.isdigit()]).delete()
+            doomed = project.images.filter(pk__in=[i for i in remove if i.isdigit()])
+            orphans += [img.image.name for img in doomed]
+            n, _ = doomed.delete()
             if n:
                 changed.append("gallery")
         start = project.images.count()
@@ -415,6 +584,8 @@ def _save_project(project, user, fields, tags, answers, files, submit, created):
         if changed:
             action = "project.created" if created else ("project.submitted" if "status" in changed else "project.updated")
             audit(project.event, user, action, project.external_id, fields=sorted(set(changed)))
+    for name in orphans:
+        transaction.on_commit(lambda name=name: default_storage.delete(name))
     return project
 
 
@@ -585,6 +756,8 @@ def save_review(project, judge_user, values, comment):
         raise Refused(409, "not_submitted")
     if not event.accepts_reviews():
         raise Refused(403, "judging_closed", "judging has closed for this event")
+    if event.results_published_at:
+        raise Refused(403, "results_published", "results are published; an organizer must unpublish before scores change")
 
     criteria = list(event.criteria.all())
     clean = {}
@@ -626,7 +799,8 @@ def _review_points(event):
         values = {s.criterion.key: s.value for s in r.scores.all()}
         raw = scoring.weighted_score(values, weights)
         if raw is not None:
-            points.append(scoring.ReviewPoint(judge=str(r.judge_id), project=r.project_id, raw=raw))
+            vector = tuple(values[k] for k in sorted(values))
+            points.append(scoring.ReviewPoint(judge=str(r.judge_id), project=r.project_id, raw=raw, vector=vector))
         for key, v in values.items():
             per_criterion[key].append(scoring.ReviewPoint(judge=str(r.judge_id), project=r.project_id, raw=float(v)))
     return points, per_criterion
@@ -684,6 +858,19 @@ def tiebreak_suggestions(event, analysis=None, limit=8):
     assigned = defaultdict(set)
     for judge_id, project_id in Assignment.objects.filter(event=event).values_list("judge_id", "project_id"):
         assigned[judge_id].add(project_id)
+    # A link is a comparison the model already has, so it comes from reviews, not from
+    # assignments that may never be scored.
+    reviewed = defaultdict(set)
+    for judge_id, project_id in Review.objects.filter(project__event=event).values_list("judge_id", "project_id"):
+        reviewed[judge_id].add(project_id)
+    # A project whose tie-break is still waiting for its score needs no second one.
+    pending = {
+        project_id
+        for judge_id, project_id in Assignment.objects.filter(event=event, source=Assignment.Source.TIEBREAK)
+        .values_list("judge_id", "project_id")
+        if project_id not in reviewed[judge_id]
+    }
+    contested = [p for p in contested if p.project not in pending]
     members = defaultdict(set)
     for team_id, user_id in TeamMembership.objects.filter(event=event).values_list("team_id", "user_id"):
         members[team_id].add(user_id)
@@ -696,7 +883,7 @@ def tiebreak_suggestions(event, analysis=None, limit=8):
             uid = r.user_id
             if uid in flat or project.id in assigned[uid] or uid in members[project.team_id]:
                 continue
-            links = sorted(x for x in assigned[uid] if x in projects and x != project.id)
+            links = sorted(x for x in reviewed[uid] if x in projects and x != project.id)
             tracks = {t.id for t in r.tracks.all()}
             on_track = not tracks or project.track_id in tracks
             rank = (len(links) > 0, on_track, -suggested[uid], -len(assigned[uid]), r.external_id)
@@ -788,17 +975,18 @@ def integrity_report(event):
     by_judge = defaultdict(list)
     per_project = defaultdict(int)
     edges = []
+    points = []
     for r in reviews:
-        raw = scoring.weighted_score({s.criterion.key: s.value for s in r.scores.all()}, weights)
+        values = {s.criterion.key: s.value for s in r.scores.all()}
+        raw = scoring.weighted_score(values, weights)
         by_judge[r.judge_id].append(raw)
         per_project[r.project_id] += 1
         edges.append((r.judge_id, r.project_id))
+        points.append(scoring.ReviewPoint(judge=r.judge_id, project=r.project_id, raw=raw,
+                                          vector=tuple(values[k] for k in sorted(values))))
 
-    flat = [
-        {"role": roles.get(j), "reviews": len(xs), "score": xs[0]}
-        for j, xs in by_judge.items()
-        if len(xs) >= 2 and len(set(round(x, 6) for x in xs if x is not None)) == 1
-    ]
+    flat_ids = scoring.flat_judges(points)  # same rule as the results model
+    flat = [{"role": roles.get(j), "reviews": len(by_judge[j]), "score": by_judge[j][0]} for j in flat_ids]
     counts = sorted(len(xs) for xs in by_judge.values())
     median = counts[len(counts) // 2] if counts else 0
     light = [
@@ -826,18 +1014,19 @@ def integrity_report(event):
         if p.submitted_at and close - LAST_MINUTE <= p.submitted_at <= close
     ]
     late = [p for p in submitted if p.submitted_at and p.submitted_at > close]
-    comps = scoring.components(edges)
+    comps = scoring.components((j, p) for j, p in edges if j not in flat_ids)  # flat judges link nothing
+    duplicates = possible_duplicates(event)
     return {
         "flat_judges": sorted(flat, key=lambda f: f["role"].external_id if f["role"] else ""),
         "light_judges": sorted(light, key=lambda f: f["role"].external_id if f["role"] else ""),
         "under_reviewed": sorted(under, key=lambda u: (u["reviews"], u["project"].external_id)),
         "target": k,
-        "duplicates": possible_duplicates(event),
+        "duplicates": duplicates,
         "last_minute": sorted(last_minute, key=lambda x: x["before_close"]),
         "late": late,
         "components": len(comps),
         "component_sizes": sorted(((len(js), len(ps)) for js, ps in comps), reverse=True),
-        "issues": len(flat) + len(light) + len(under) + len(possible_duplicates(event)) + len(late)
+        "issues": len(flat) + len(light) + len(under) + len(duplicates) + len(late)
         + (1 if len(comps) > 1 else 0),
     }
 

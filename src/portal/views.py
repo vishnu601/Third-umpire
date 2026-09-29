@@ -7,7 +7,7 @@ from django.shortcuts import render
 
 from . import scoring, services
 from .api import ApiError, api_view, json_body, require_login
-from .models import Assignment, AuditLog, CriterionScore, Event, EventRole, Project, Review, Tag, Team, TeamMembership, Track
+from .models import Assignment, AuditLog, CriterionScore, Event, EventRole, Project, Review, Tag, TeamMembership, Track
 
 # --- pages -------------------------------------------------------------------
 
@@ -82,7 +82,8 @@ def judge_scores(request):
     )
     if not own_ids:
         raise ApiError(403, "not_a_judge")
-    if "judge" in request.GET and request.GET["judge"] not in own_ids:
+    named = request.GET.getlist("judge")
+    if any(j not in own_ids for j in named):
         raise ApiError(403, "not_your_scores", "judges can only read their own scores")
 
     reviews = (

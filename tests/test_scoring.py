@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from portal.scoring import ReviewPoint, analyse, components, fit, kendall_tau, weighted_score
+from portal.scoring import ReviewPoint, analyse, components, fit, flat_judges, kendall_tau, weighted_score
 
 
 def pts(rows):
@@ -74,12 +74,26 @@ def test_flat_judge_is_excluded_from_the_fit_but_counted():
 
 
 def test_project_seen_only_by_a_flat_judge_still_gets_a_score():
-    rows = [("F", "A", 4), ("F", "Z", 4), ("J", "B", 5), ("J", "C", 1)]
+    rows = [("F", "A", 4), ("F", "Z", 4), ("F", "Y", 4), ("J", "B", 5), ("J", "C", 1)]
     r = analyse(pts(rows), draws=0)
     # Falls back to its raw mean (better than no estimate) and says so.
     assert r.projects["A"].fallback and r.projects["A"].used_reviews == 1
     assert r.projects["A"].score == pytest.approx(4)
     assert r.projects["A"].low_confidence
+
+
+def test_two_equal_reviews_are_not_enough_to_call_a_judge_flat():
+    rows = [("T", "A", 4), ("T", "B", 4), ("J", "A", 5), ("J", "B", 2)]
+    assert not analyse(pts(rows), draws=0).judges["T"].flat
+
+
+def test_same_mean_from_different_criterion_scores_is_not_flat():
+    vectors = [(4, 3, 5), (5, 4, 3), (3, 5, 4)]
+    rows = [ReviewPoint(judge="D", project=p, raw=4.0, vector=v) for p, v in zip("ABC", vectors)]
+    rows += pts([("J", "A", 5), ("J", "B", 3), ("J", "C", 2)])
+    assert flat_judges(rows) == set()
+    same = [ReviewPoint(judge="F", project=p, raw=4.0, vector=(4, 4, 4)) for p in "ABC"]
+    assert flat_judges(same + rows) == {"F"}
 
 
 def test_everyone_identical_does_not_break():
@@ -90,6 +104,27 @@ def test_everyone_identical_does_not_break():
 def test_empty_input():
     r = analyse([], draws=0)
     assert r.projects == {} and r.judges == {}
+
+
+def test_fit_converges_to_the_ridge_solution():
+    rng = random.Random(3)
+    rows = [(f"J{j}", f"P{p:02d}", rng.randint(1, 5)) for j in range(8) for p in range(15) if rng.random() < 0.4]
+    points = pts(rows)
+    m = fit(points, prior_weight=2)
+    assert m.iterations < 1000
+    resid = {pt: pt.raw - m.mu - m.quality[pt.project] - m.leniency[pt.judge] for pt in points}
+    by_p, by_j = {}, {}
+    for pt, r in resid.items():
+        by_p[pt.project] = by_p.get(pt.project, 0) + r
+        by_j[pt.judge] = by_j.get(pt.judge, 0) + r
+    # Normal equations: project residuals sum to zero; judge residuals equal the
+    # ridge pull on (leniency + one shared centring constant).
+    assert all(abs(v) < 1e-6 for v in by_p.values())
+    offsets = [by_j[j] / 2 - m.leniency[j] for j in by_j]
+    assert max(offsets) - min(offsets) < 1e-6
+    # And leniency is centred, review-weighted, so mu stays the average review.
+    n = {j: sum(1 for pt in points if pt.judge == j) for j in by_j}
+    assert abs(sum(m.leniency[j] * n[j] for j in by_j)) < 1e-6
 
 
 def test_shift_of_one_judge_does_not_change_the_ranking():
@@ -106,6 +141,11 @@ def test_shift_of_one_judge_does_not_change_the_ranking():
 def test_components_split_when_no_judge_links_two_groups():
     comps = components([("J", "A"), ("J", "B"), ("K", "C")])
     assert sorted((len(j), len(p)) for j, p in comps) == [(1, 1), (1, 2)]
+
+
+def test_a_flat_judge_does_not_count_as_a_bridge():
+    rows = [("J", "A", 5), ("J", "B", 3), ("K", "C", 4), ("K", "D", 2), ("F", "A", 4), ("F", "C", 4), ("F", "E", 4)]
+    assert analyse(pts(rows), draws=0).components == 2
 
 
 def test_disconnected_design_is_reported():

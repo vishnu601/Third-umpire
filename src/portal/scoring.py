@@ -4,12 +4,13 @@
 2. Raw scores follow a two-way model:  raw = mu + quality[project] + leniency[judge] + noise.
    It is fitted by alternating least squares. Leniency gets a ridge penalty of
    `prior_weight` pseudo-reviews at zero, so a judge with one review is assumed
-   average until shown otherwise. Leniencies are centred (review-weighted) so
-   mu stays the event's average review.
+   average until shown otherwise. After convergence, leniencies are centred
+   (review-weighted) so mu stays the event's average review; centring moves
+   every quality by the same constant, so fitted values and ranks don't change.
 3. A project's score is mu + quality: what it would have averaged if every
    review had come from a judge of average leniency.
-4. Flat judges (two or more reviews, all identical) say nothing about which
-   project is better, so they are left out of the fit. A project reviewed only
+4. Flat judges (three or more reviews, every criterion score identical) say
+   nothing about which project is better, so they are left out of the fit. A project reviewed only
    by flat judges falls back to its raw mean and is marked low confidence.
 5. Uncertainty comes from a seeded residual bootstrap: the fitted model's
    residuals (scaled up for the parameters fitted) are redrawn onto every
@@ -37,6 +38,7 @@ DEFAULT_SEED = 20260929
 BAND = (0.1, 0.9)  # 80% rank band
 CONTESTED = (0.1, 0.9)  # P(in prize places) strictly between these = too close to call
 MIN_CONFIDENT_REVIEWS = 2
+MIN_FLAT_REVIEWS = 3
 
 
 def weighted_score(values, weights):
@@ -56,6 +58,7 @@ class ReviewPoint:
     judge: str
     project: str
     raw: float
+    vector: tuple = ()  # the criterion scores behind raw, when known
 
 
 @dataclass
@@ -90,17 +93,35 @@ def fit(points, prior_weight=DEFAULT_PRIOR_WEIGHT, iters=1000, tol=1e-10, start=
             new = sum(x - mu - q[p] for p, x in rows) / (len(rows) + prior_weight)
             delta = max(delta, abs(new - b[j]))
             b[j] = new
-        centre = sum(b[j] * len(rows) for j, rows in by_j.items()) / n
-        for j in b:
-            b[j] -= centre
         for p, rows in by_p.items():
             new = sum(x - mu - b[j] for j, x in rows) / len(rows)
             delta = max(delta, abs(new - q[p]))
             q[p] = new
         if delta < tol:
             break
+    # Centring inside the loop would fight the ridge step (which pins the
+    # unweighted mean of b), so it happens once, as a reparametrisation.
+    centre = sum(b[j] * len(rows) for j, rows in by_j.items()) / n
+    b = {j: v - centre for j, v in b.items()}
+    q = {p: v + centre for p, v in q.items()}
     resid = [pt.raw - mu - q[pt.project] - b[pt.judge] for pt in points]
     return Fit(mu, q, b, math.sqrt(sum(r * r for r in resid) / n), it)
+
+
+def flat_judges(points):
+    """Judges whose every review has identical criterion scores (at least MIN_FLAT_REVIEWS of them).
+
+    Compares the criterion scores when the points carry them, so two different
+    score sheets with the same weighted mean are not mistaken for flat scoring.
+    """
+    seen = defaultdict(set)
+    counts = defaultdict(int)
+    for pt in points:
+        if pt.raw is None:
+            continue
+        seen[pt.judge].add(pt.vector or round(pt.raw, 9))
+        counts[pt.judge] += 1
+    return {j for j, n in counts.items() if n >= MIN_FLAT_REVIEWS and len(seen[j]) == 1}
 
 
 def components(edges):
@@ -211,7 +232,7 @@ def analyse(points, prize_slots=3, prior_weight=DEFAULT_PRIOR_WEIGHT, draws=DEFA
     for pt in points:
         by_j[pt.judge].append(pt)
         by_p[pt.project].append(pt)
-    flat = {j for j, ps in by_j.items() if len(ps) >= 2 and len({round(p.raw, 9) for p in ps}) == 1}
+    flat = flat_judges(points)
     used = [pt for pt in points if pt.judge not in flat]
     used_by_p = defaultdict(list)
     for pt in used:
@@ -220,7 +241,8 @@ def analyse(points, prize_slots=3, prior_weight=DEFAULT_PRIOR_WEIGHT, draws=DEFA
 
     m = fit(used, prior_weight)
     result.mu, result.residual_sd = m.mu, m.residual_sd
-    result.components = len(components((pt.judge, pt.project) for pt in points))
+    # Only the reviews in the fit link projects; a flat judge is no bridge.
+    result.components = len(components((pt.judge, pt.project) for pt in used))
     raw_means = {p: sum(pt.raw for pt in ps) / len(ps) for p, ps in by_p.items()}
 
     def scores_from(model, fb_means):

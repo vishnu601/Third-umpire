@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from portal import services
-from portal.seed import import_fixture, set_demo_passwords, write_seeded_sessions
+from portal.seed import import_fixture, revoke_demo_access, set_demo_passwords, write_seeded_sessions
 
 
 class Command(BaseCommand):
@@ -28,6 +28,7 @@ class Command(BaseCommand):
             services.event_results(event)  # precompute so the first results page view is instant
 
         if not sessions:
+            revoke_demo_access(event)  # demo mode off: its published cookies and password must stop working
             return
         people = set_demo_passwords(event)
         self.stdout.write("seeded. test logins:")

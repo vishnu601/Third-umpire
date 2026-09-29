@@ -7,7 +7,6 @@ the message and send you back to the form.
 """
 
 from datetime import datetime, timezone as dt_timezone
-from decimal import Decimal, InvalidOperation
 from functools import wraps
 
 from django import forms
@@ -17,10 +16,12 @@ from django.contrib.auth import get_user_model, login
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
-from django.db.models import Count, ProtectedError, Q
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
+from django.views.static import serve
 
 from . import services
 from .models import (
@@ -36,7 +37,6 @@ from .models import (
     Review,
     Team,
     Track,
-    mint_id,
 )
 from .seed import demo_home, demo_user
 from .services import Refused
@@ -131,7 +131,10 @@ def signup(request):
 def safe_next(request):
     """Only same-site relative paths, so ?next= cannot bounce people off-site."""
     nxt = request.GET.get("next", "")
-    return nxt if nxt.startswith("/") and not nxt.startswith("//") else ""
+    if "\\" in nxt:  # browsers read a backslash as a slash, Django's check does not
+        return ""
+    allowed = url_has_allowed_host_and_scheme(nxt, {request.get_host()}, require_https=request.is_secure())
+    return nxt if allowed and nxt.startswith("/") else ""
 
 
 # --- events ----------------------------------------------------------------------
@@ -204,87 +207,28 @@ def _manage_action(request, event):
         services.update_event(event, user, **event_fields(post))
         messages.success(request, "Event details saved.")
     elif action == "add_track":
-        name = (post.get("name") or "").strip()[:200] or _missing("name")
-        track = Track.objects.create(event=event, external_id=mint_id("trk"), name=name)
-        services.audit(event, user, "track.added", track.external_id, name=name)
+        services.add_track(event, user, post.get("name"))
     elif action == "delete_track":
-        track = get_object_or_404(Track, event=event, external_id=post.get("track"))
-        try:
-            track.delete()
-        except ProtectedError:
-            raise Refused(409, "track_in_use", "projects are entered in this track; move them first")
-        services.audit(event, user, "track.deleted", post.get("track"), name=track.name)
+        services.delete_track(event, user, get_object_or_404(Track, event=event, external_id=post.get("track")))
     elif action == "add_prize":
-        name = (post.get("name") or "").strip()[:200] or _missing("name")
-        track = event.tracks.filter(external_id=post.get("track")).first() if post.get("track") else None
-        prize = Prize.objects.create(
-            event=event,
-            name=name,
-            value=(post.get("value") or "").strip()[:100],
-            track=track,
-            position=event.prizes.count(),
-        )
-        services.audit(event, user, "prize.added", prize.pk, name=name, value=prize.value)
+        services.add_prize(event, user, post.get("name"), post.get("value"), post.get("track"))
     elif action == "delete_prize":
-        prize = get_object_or_404(Prize, event=event, pk=post.get("prize"))
-        prize.delete()
-        services.audit(event, user, "prize.deleted", post.get("prize"), name=prize.name)
+        services.delete_prize(event, user, get_object_or_404(Prize, event=event, pk=post.get("prize")))
     elif action == "weights":
-        changed = {}
-        for c in event.criteria.all():
-            raw = post.get(f"weight_{c.pk}")
-            if raw is None:
-                continue
-            try:
-                w = Decimal(raw)
-            except InvalidOperation:
-                raise Refused(400, "invalid_weight", f"weight for {c.name} is not a number")
-            if not (0 <= w <= 100):
-                raise Refused(400, "invalid_weight", "weights must be between 0 and 100")
-            if w != c.weight:
-                changed[c.key] = [str(c.weight), str(w)]
-                c.weight = w
-                c.save(update_fields=["weight"])
-        if changed:
-            services.audit(event, user, "rubric.weights_changed", event.external_id, changed=changed)
+        services.set_weights(event, user, {c.pk: post.get(f"weight_{c.pk}") for c in event.criteria.all()})
         messages.success(request, "Rubric weights saved.")
     elif action == "add_criterion":
-        name = (post.get("name") or "").strip()[:200] or _missing("name")
-        key = "-".join(name.lower().split())[:64]
-        if event.criteria.filter(key=key).exists():
-            raise Refused(409, "criterion_exists", "a criterion with that name exists")
-        if Review.objects.filter(project__event=event).exists():
-            raise Refused(409, "rubric_locked", "reviews exist; a new criterion would leave them incomplete")
-        Criterion.objects.create(event=event, key=key, name=name, position=event.criteria.count())
-        services.audit(event, user, "rubric.criterion_added", key, name=name)
+        services.add_criterion(event, user, post.get("name"))
     elif action == "criterion_text":
         c = get_object_or_404(Criterion, event=event, pk=post.get("criterion"))
-        for f in ("description", "anchor_low", "anchor_mid", "anchor_high"):
-            setattr(c, f, (post.get(f) or "").strip()[:300])
-        c.save()
-        services.audit(event, user, "rubric.anchors_changed", c.key)
+        services.update_criterion_text(event, user, c, **{f: post.get(f) for f in ("description", "anchor_low", "anchor_mid", "anchor_high")})
         messages.success(request, f"Saved the description and anchors for {c.name}.")
     elif action == "add_question":
-        prompt = (post.get("prompt") or "").strip()[:300] or _missing("question")
-        q = EventQuestion.objects.create(
-            event=event,
-            prompt=prompt,
-            help_text=(post.get("help_text") or "").strip()[:300],
-            required=post.get("required") == "1",
-            position=event.questions.count(),
-        )
-        services.audit(event, user, "question.added", q.pk, prompt=prompt, required=q.required)
+        services.add_question(event, user, post.get("prompt"), post.get("help_text"), post.get("required") == "1")
     elif action == "delete_question":
-        q = get_object_or_404(EventQuestion, event=event, pk=post.get("question"))
-        if q.answers.exclude(answer="").exists():
-            raise Refused(409, "question_answered", "teams have answered this question; mark it optional instead")
-        q.delete()
-        services.audit(event, user, "question.deleted", post.get("question"), prompt=q.prompt)
+        services.delete_question(event, user, get_object_or_404(EventQuestion, event=event, pk=post.get("question")))
     elif action == "toggle_question":
-        q = get_object_or_404(EventQuestion, event=event, pk=post.get("question"))
-        q.required = not q.required
-        q.save(update_fields=["required"])
-        services.audit(event, user, "question.changed", q.pk, required=q.required)
+        services.toggle_question(event, user, get_object_or_404(EventQuestion, event=event, pk=post.get("question")))
     elif action == "publish":
         services.set_results_published(event, user, True)
         messages.success(request, "Results are public.")
@@ -357,6 +301,8 @@ def project_edit(request, team_id, project_id=None):
         raise Refused(403, "not_on_team", "only team members can edit the team's project")
     project = get_object_or_404(Project, team=team, external_id=project_id) if project_id else None
     if request.method == "POST":
+        if int(request.META.get("CONTENT_LENGTH") or 0) > services.MAX_UPLOAD_BYTES:
+            raise Refused(400, "upload_too_large", "that form is larger than the upload limit; use smaller images")
         submit = request.POST.get("action") == "submit"
         files = {
             "thumbnail": request.FILES.get("thumbnail"),
@@ -656,3 +602,16 @@ def demo_login(request):
 
 def health(request):
     return HttpResponse("ok", content_type="text/plain")
+
+
+def media(request, path):
+    """Uploaded images, served with headers that stop the browser treating one as a page.
+
+    An upload is validated and renamed to the format Pillow read, but media is
+    same-origin, so a file that slipped through must still be inert: the sandbox
+    and `default-src 'none'` stop scripts, and nosniff stops content sniffing.
+    """
+    response = serve(request, path, document_root=settings.MEDIA_ROOT)  # read late: tests override it
+    response["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; sandbox"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response

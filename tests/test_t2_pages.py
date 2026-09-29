@@ -10,7 +10,7 @@ from django.test import Client
 from django.utils import timezone
 
 from portal import services
-from portal.models import Assignment, AuditLog, Event, EventRole, JudgeInvite, Project, Review
+from portal.models import Assignment, AuditLog, Event, EventRole, JudgeInvite, Review
 
 from .conftest import JUDGE_A, ORGANIZER, PARTICIPANT, client_as
 

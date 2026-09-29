@@ -1,7 +1,9 @@
 """Idempotent import of fixtures.json, plus the checker's fixed sessions.
 
 The fixture is input, not our schema: we upsert it into the portal tables by
-its string ids, so running this twice changes nothing.
+its string ids, so running this twice changes nothing. Rows people can edit in
+the app (event dates, projects, reviews) are only created, never overwritten,
+so a reboot can't revert an organizer's, participant's or judge's change.
 """
 
 from datetime import timedelta
@@ -56,7 +58,7 @@ def user_for_email(email, name=""):
 def import_fixture(data):
     """Upsert every record in a fixtures.json dict. Returns the Event."""
     ev = data["event"]
-    event, _ = Event.objects.update_or_create(
+    event, _ = Event.objects.get_or_create(
         external_id=ev["id"],
         defaults={"name": ev["name"], "submissions_close": parse_datetime(ev["submissions_close"])},
     )
@@ -108,7 +110,7 @@ def import_fixture(data):
     projects = {}
     for p in data.get("projects", []):
         submitted_at = parse_datetime(p["submitted_at"]) if p.get("submitted_at") else None
-        projects[p["id"]], _ = Project.objects.update_or_create(
+        projects[p["id"]], _ = Project.objects.get_or_create(
             event=event,
             external_id=p["id"],
             defaults={
@@ -130,13 +132,11 @@ def import_fixture(data):
             project=projects[s["project"]],
             defaults={"source": Assignment.Source.IMPORT},
         )
-        review, _ = Review.objects.update_or_create(
+        review, _ = Review.objects.get_or_create(
             judge=judges[s["judge"]], project=projects[s["project"]], defaults={"comment": s.get("comment", "")}
         )
         for key, value in s["criteria"].items():
-            CriterionScore.objects.update_or_create(
-                review=review, criterion=criteria[key], defaults={"value": value}
-            )
+            CriterionScore.objects.get_or_create(review=review, criterion=criteria[key], defaults={"value": value})
 
     organizer = user_for_email(SEEDED_ORGANIZER_EMAIL, "Seeded organizer")
     if not organizer.is_staff:
@@ -156,15 +156,37 @@ def set_demo_passwords(event):
     hashes (and any password a person chose) survive reboots. Demo mode only.
     """
     admin = user_for_email(SEEDED_ADMIN_EMAIL, "Seeded admin")
-    if not admin.is_superuser:
-        admin.is_superuser = admin.is_staff = True
-        admin.save(update_fields=["is_superuser", "is_staff"])
+    if not (admin.is_superuser and admin.is_active):
+        admin.is_superuser = admin.is_staff = admin.is_active = True
+        admin.save(update_fields=["is_superuser", "is_staff", "is_active"])
     people = [admin] + [resolve_seeded_user(event, who) for _, who in SEEDED_SESSIONS.values()]
     for user in people:
         if not user.has_usable_password():
             user.set_password(settings.DOGFOOD_DEMO_PASSWORD)
             user.save(update_fields=["password"])
     return [u.username for u in people]
+
+
+def demo_accounts(event):
+    """Everyone demo mode hands a known password or a fixed session to."""
+    people = [resolve_seeded_user(event, who) for _, who in SEEDED_SESSIONS.values()]
+    admin = User.objects.filter(username=SEEDED_ADMIN_EMAIL).first()
+    return people + ([admin] if admin else [])
+
+
+@transaction.atomic
+def revoke_demo_access(event):
+    """Undo demo mode when it is turned off, so its public credentials stop working.
+
+    Deletes the fixed sessions, removes the demo password wherever it is still
+    the password, and disables the seeded admin. Passwords people chose are kept.
+    """
+    Session.objects.filter(session_key__in=SEEDED_SESSIONS).delete()
+    for user in demo_accounts(event):
+        if user.check_password(settings.DOGFOOD_DEMO_PASSWORD):
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+    User.objects.filter(username=SEEDED_ADMIN_EMAIL).update(is_superuser=False, is_staff=False, is_active=False)
 
 
 def resolve_seeded_user(event, who):
