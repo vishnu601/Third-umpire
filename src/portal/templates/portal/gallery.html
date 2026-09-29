@@ -3,7 +3,7 @@
 {% block content %}
 <h1>Projects</h1>
 <p class="muted">Every submitted project, across events. Drafts stay private to their team.</p>
-<form class="card row" method="get" action="/projects" role="search">
+<form class="card row filters" method="get" action="/projects" role="search">
   <div><label class="sr-only" for="q">Search</label><input id="q" type="search" name="q" value="{{ q }}" placeholder="Search name, tagline, team"></div>
   <div><label class="sr-only" for="event">Event</label>
     <select id="event" name="event"><option value="">All events</option>
@@ -22,15 +22,17 @@
 <p class="muted small">{{ projects|length }} project{{ projects|length|pluralize }}</p>
 <div class="grid">
   {% for p in projects %}
-  <article class="card">
+  <article class="card pcard">
     {% if p.thumbnail %}<img class="thumb" src="{{ p.thumbnail.url }}" alt="">{% else %}<div class="thumb" aria-hidden="true">{{ p.title|slice:":1" }}</div>{% endif %}
-    <h2 style="margin:.75rem 0 .15rem;font-size:1.05rem"><a href="/projects/{{ p.event.external_id }}/{{ p.external_id }}">{{ p.title }}</a></h2>
-    <p class="muted small" style="margin:0 0 .4rem">{{ p.team.name }}{% if p.track %} · {{ p.track.name }}{% endif %}</p>
-    {% if p.tagline %}<p style="margin:0 0 .5rem">{{ p.tagline }}</p>{% endif %}
-    {% for t in p.tags.all %}<a class="chip" href="?tag={{ t.name }}">{{ t.name }}</a>{% endfor %}
+    <div class="body">
+    <h2><a href="/projects/{{ p.event.external_id }}/{{ p.external_id }}">{{ p.title }}</a></h2>
+    <p class="muted small meta">{{ p.team.name }}{% if p.track %} · {{ p.track.name }}{% endif %}</p>
+    {% if p.tagline %}<p class="tagline">{{ p.tagline }}</p>{% endif %}
+    <div class="tags">{% for t in p.tags.all %}<a class="chip" href="?tag={{ t.name }}">{{ t.name }}</a>{% endfor %}</div>
+    </div>
   </article>
   {% empty %}
-  <p>No projects match.</p>
+  <div class="empty"><strong>No projects match.</strong>Try clearing a filter or searching for something broader. <a href="/projects">Reset filters</a></div>
   {% endfor %}
 </div>
 {% endblock %}

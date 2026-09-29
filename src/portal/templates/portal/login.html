@@ -1,7 +1,7 @@
 {% extends "portal/base.html" %}
 {% block title %}Log in · Third Umpire{% endblock %}
 {% block content %}
-<div class="card" style="max-width:26rem">
+<div class="card auth">
   <h1>Log in</h1>
   <form method="post">{% csrf_token %}
     {% if form.non_field_errors %}<ul class="flash"><li class="error">{{ form.non_field_errors|join:" " }}</li></ul>{% endif %}

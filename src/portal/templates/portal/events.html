@@ -9,7 +9,7 @@
     <tr><td><a href="/events/{{ e.external_id }}">{{ e.name }}</a></td>
       <td>{% include "portal/_phase.html" with event=e %}</td>
       <td>{{ e.submissions_close|date:"Y-m-d H:i" }}</td><td class="num">{{ e.n_projects }}</td></tr>
-  {% empty %}<tr><td colspan="4">No events yet.</td></tr>{% endfor %}
+  {% empty %}<tr><td colspan="4" class="muted">No events yet.</td></tr>{% endfor %}
   </tbody>
 </table></div>
 {% endblock %}

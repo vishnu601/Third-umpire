@@ -7,20 +7,30 @@
 <p class="muted">Scores are corrected for judge leniency with a two-way model: every review is read as <em>project quality + judge leniency + noise</em>, estimated together from the projects judges share. The score is what a project would have averaged with judges of average leniency. Rank bands and chances come from {{ analysis.draws }} resamples of the model's noise, refitting each time, so uncertainty in every judge's leniency is included. Method and proof: JUDGING.md.</p>
 
 {% if analysis.contested_boundary %}
-<div class="card" style="border-color:var(--warn)">
+<div class="card callout">
   <strong>Too close to call.</strong> <span class="small">Some projects' chance of finishing in the top {{ analysis.prize_slots }} is between 10% and 90%. With this many reviews the order among them could easily flip.{% if organizer %} More reviews for those projects would settle it; see the tie-break suggestions below.{% endif %}</span>
 </div>
 {% endif %}
-{% if analysis.components > 1 %}<div class="card" style="border-color:var(--bad)"><strong>Not comparable.</strong> <span class="small">Judges and projects form {{ analysis.components }} separate groups with no shared judges, so scores across groups can't be compared.</span></div>{% endif %}
+{% if analysis.components > 1 %}<div class="card callout bad"><strong>Not comparable.</strong> <span class="small">Judges and projects form {{ analysis.components }} separate groups with no shared judges, so scores across groups can't be compared.</span></div>{% endif %}
+
+<div class="podium">{% for project, s in ranking|slice:":3" %}
+  <div class="card r{{ s.rank }}">
+    <div class="place">{% if s.rank == 1 %}First{% elif s.rank == 2 %}Second{% elif s.rank == 3 %}Third{% else %}#{{ s.rank }}{% endif %}</div>
+    <div class="name"><a href="/projects/{{ event.external_id }}/{{ project.external_id }}">{{ project.title }}</a></div>
+    <div class="small muted">{{ project.team.name }}</div>
+    <div class="big">{{ s.score|floatformat:2 }}<small>/ 5 corrected</small></div>
+    <div class="small muted">Rank band {{ s.rank_lo }}–{{ s.rank_hi }} · {% widthratio s.p_first 1 100 %}% chance of first</div>
+  </div>{% endfor %}
+</div>
 
 <h2>Ranking</h2>
 <div class="table-scroll"><table class="data">
   <thead><tr><th class="num">#</th><th>Project</th><th class="num">Score</th><th class="num">Raw mean</th><th class="num">Reviews</th><th class="num">80% rank band</th><th class="num">P(first)</th><th class="num">P(top {{ analysis.prize_slots }})</th><th></th></tr></thead>
   <tbody>{% for project, s in ranking %}
-    <tr{% if s.rank == analysis.prize_slots %} style="border-bottom:2px solid var(--accent)"{% endif %}>
-      <td class="num">{{ s.rank }}</td>
+    <tr class="{% if s.rank == analysis.prize_slots %}cut{% endif %}{% if s.rank <= 3 %} top{% endif %}">
+      <td class="num rk">{{ s.rank }}</td>
       <td><a href="/projects/{{ event.external_id }}/{{ project.external_id }}">{{ project.title }}</a> <span class="small muted">{{ project.team.name }}</span></td>
-      <td class="num"><strong>{{ s.score|floatformat:2 }}</strong></td>
+      <td class="num"><strong>{{ s.score|floatformat:2 }}</strong><span class="meter" aria-hidden="true"><span style="width:{% widthratio s.score 5 100 %}%"></span></span></td>
       <td class="num muted">{{ s.raw_mean|floatformat:2 }}</td>
       <td class="num">{{ s.used_reviews }}{% if s.used_reviews != s.reviews %}<span class="muted">/{{ s.reviews }}</span>{% endif %}</td>
       <td class="num">{{ s.rank_lo }}–{{ s.rank_hi }}</td>
@@ -33,7 +43,7 @@
 
 {% if leaders %}
 <h2>Category awards</h2>
-<div class="grid">{% for x in leaders %}<div class="card"><div class="small muted">Best {{ x.criterion.name }}</div><div><strong>{{ x.project.title }}</strong></div><div class="small muted">{{ x.score|floatformat:2 }}{% if x.runner_up %} · runner-up {{ x.runner_up|floatformat:2 }}{% endif %}</div></div>{% endfor %}</div>
+<div class="grid">{% for x in leaders %}<div class="card award"><div class="k">Best {{ x.criterion.name }}</div><div class="v">{{ x.project.title }}</div><div class="small muted">{{ x.score|floatformat:2 }}{% if x.runner_up %} · runner-up {{ x.runner_up|floatformat:2 }}{% endif %}</div></div>{% endfor %}</div>
 {% endif %}
 
 {% if organizer %}
@@ -47,7 +57,7 @@
   </tbody></table>
   <form method="post" style="margin-top:.75rem">{% csrf_token %}<input type="hidden" name="action" value="tiebreak"><button type="submit">Assign all {{ suggestions|length }}</button></form>
 </div>
-{% else %}<p class="muted">No contested placings. Nothing to break.</p>{% endif %}
+{% else %}<div class="empty">No contested placings. Nothing to break.</div>{% endif %}
 
 <h2>Judges: leniency</h2>
 <p class="small muted">Leniency is how many points a judge gives above (+) or below (−) an average judge on the same projects, shrunk towards 0 by {{ analysis.prior_weight }} pseudo-reviews so a judge with one review is assumed average. Flat judges gave every project the same score and are left out of the model. Only organizers see this table.</p>
