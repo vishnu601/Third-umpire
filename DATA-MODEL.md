@@ -42,7 +42,7 @@ Event ─┬─ Track ─────────────┐
 | **CriterionScore** | one value per criterion per review | `(review, criterion)` unique; **value between 1 and 5** |
 | **Vote** | one community vote: event, project, voter, `created_at`, `ip_hash` (sha256 of the secret key + client address; never the address) | **`(voter, project)` unique** |
 | **Comment** | a public comment on a project: author, body, `created_at`, and when hidden: `hidden_at`, `hidden_by`, `hidden_reason` | none beyond the foreign keys; length, duplicates and rate are application rules |
-| **AuditLog** | who, what (`action`), which (`target`), JSON detail, when; nullable event for account-level actions | append-only by convention (no update or delete path in the app) |
+| **AuditLog** | who, what (`action`), which (`target`), JSON detail, when; nullable event for account-level actions; `prev_hash` and `hash` (SHA-256 chain, one per event) | no update or delete path in the app; `hash` = SHA-256 of `prev_hash` plus the row's fields (`auditchain.py`), so an edited, inserted or deleted row breaks the chain. Migration `0004` seals existing rows in id order, as they were, so protection starts at that migration |
 
 ### Decisions worth defending
 
@@ -98,7 +98,7 @@ All organizer-only (401 anonymous, 403 anyone else), CSV with formula-injection 
 | Assignment | `/api/events/<id>/assignments.csv` | assignment, with source and whether it's reviewed |
 | Scoring | `/api/export.csv?event=<id>` | review: every criterion, weighted score, leniency-adjusted score, comment |
 | Results | `/api/events/<id>/results.csv` | project: rank, score, raw mean, rank band, P(first), P(prize), flags |
-| Audit | `/api/events/<id>/audit.csv` | audit entry, oldest first |
+| Audit | `/api/events/<id>/audit.csv` | audit entry, oldest first, with its chain `hash` (blank until any community vote has closed) |
 | Community votes | `/api/events/<id>/votes.csv` | vote: project, voter email, time, first 12 characters of `ip_hash`, integrity flags. **403 `results_hidden` until voting closes**, because a row per vote is the tally |
 | Comments | `/api/events/<id>/comments.csv` | comment, hidden ones included with who hid them and why |
 

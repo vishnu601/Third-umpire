@@ -380,9 +380,18 @@ def comments_csv(request, event_id):
 def audit_csv(request, event_id):
     """The audit trail, oldest first."""
     event = organizer_event(request, event_id)
+    hide_hashes = services.audit_hashes_hidden(event)
     rows = (
-        [e.created_at.isoformat(), e.actor.username if e.actor else "", e.action, e.target, json.dumps(e.detail, sort_keys=True)]
+        [e.created_at.isoformat(), e.actor.username if e.actor else "", e.action, e.target, json.dumps(e.detail, sort_keys=True),
+         "" if hide_hashes else e.hash]
         for e in services.visible_audit(event).select_related("actor").order_by("created_at", "id")
     )
-    return csv_response(f"audit-{event.external_id}.csv", ["at", "actor", "action", "target", "detail"], rows)
+    return csv_response(f"audit-{event.external_id}.csv", ["at", "actor", "action", "target", "detail", "hash"], rows)
+
+
+@api_view(["GET"])
+def audit_verify(request, event_id):
+    """Recompute the event's audit hash chain. While voting is open it returns the verdict only (no head, visible count)."""
+    event = organizer_event(request, event_id)
+    return JsonResponse(services.organizer_chain_report(event))
 

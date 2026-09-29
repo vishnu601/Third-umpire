@@ -22,7 +22,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from PIL import Image
 
-from . import ratelimit, scoring
+from . import auditchain, ratelimit, scoring
 from .errors import Refused  # noqa: F401 (re-exported: pages, api and tests import it from here)
 from .models import (
     Assignment,
@@ -111,13 +111,43 @@ def add_organizer(event, actor, email):
 
 
 def audit(event, actor, action, target="", **detail):
-    return AuditLog.objects.create(
-        event=event,
-        actor=actor if actor is not None and actor.is_authenticated else None,
-        action=action,
-        target=str(target),
-        detail=detail,
-    )
+    with transaction.atomic():
+        entry = AuditLog.objects.create(
+            event=event,
+            actor=actor if actor is not None and actor.is_authenticated else None,
+            action=action,
+            target=str(target),
+            detail=detail,
+        )
+        entry.refresh_from_db()  # hash what the database stored, not the Python values handed in
+        return auditchain.seal(AuditLog, entry)
+
+
+def verify_audit_chain(event):
+    """Recompute the event's whole chain, vote rows included (the report names no project)."""
+    return auditchain.verify(AuditLog.objects.filter(event=event).order_by("id").iterator())
+
+
+def audit_hashes_hidden(event):
+    """While vote rows are hidden, so are the chain's hashes: a vote row's hash, or the hashes of the rows either
+    side of it, let an organizer test guesses (voter x project x time) at what was voted for."""
+    return event.voting_phase() in ("not_open", "open")
+
+
+def organizer_chain_report(event):
+    """The chain check as organizers see it: the verdict always; the head hash and the full count once votes are visible."""
+    report = verify_audit_chain(event)
+    if audit_hashes_hidden(event):
+        report["head"] = ""
+        report["entries"] = visible_audit(event).count()  # counting hidden rows would time each vote
+    return report
+
+
+def publication_anchor(event):
+    """The chain hash of the latest publish entry. It commits to every audit entry written before publication."""
+    if not event.results_published or audit_hashes_hidden(event):
+        return ""
+    return AuditLog.objects.filter(event=event, action="results.published").order_by("-id").values_list("hash", flat=True).first() or ""
 
 
 # --- events -------------------------------------------------------------------

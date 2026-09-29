@@ -739,7 +739,8 @@ def results(request, event_id):
     if not organizer and not event.results_published:
         raise Refused(403, "results_not_published", "results are not published yet")
     analysis, ranking, judges, leaders = result_rows(event)
-    ctx = {"event": event, "analysis": analysis, "ranking": ranking, "leaders": leaders, "organizer": organizer}
+    ctx = {"event": event, "analysis": analysis, "ranking": ranking, "leaders": leaders, "organizer": organizer,
+           "anchor": services.publication_anchor(event)}
     if organizer:
         ctx["judges"] = judges
         ctx["suggestions"] = services.tiebreak_suggestions(event, analysis)
@@ -764,7 +765,8 @@ def audit_log(request, event_id):
     return render(
         request,
         "portal/audit.html",
-        {"event": event, "entries": entries, "action": action, "action_choices": AUDIT_GROUPS},
+        {"event": event, "entries": entries, "action": action, "action_choices": AUDIT_GROUPS,
+         "chain": services.organizer_chain_report(event)},
     )
 
 

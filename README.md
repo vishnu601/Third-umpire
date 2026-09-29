@@ -79,7 +79,7 @@ it). The checker's cookies (`Cookie: session=org_7f2a` and so on) are printed at
 
 ## What it does, and where to check it
 
-Every claim below has a test you can run (`.venv/bin/pytest`, 243 tests) and, for T1/T2 checker items, a `run.py`
+Every claim below has a test you can run (`.venv/bin/pytest`, 254 tests) and, for T1/T2 checker items, a `run.py`
 line.
 
 | Tier item | Where | Evidence |
@@ -110,7 +110,12 @@ line.
 - **Category awards** are computed per criterion.
 - A **Markdown results post** can be copied for a blog.
 - A readable **audit log** covers every change, including refused late submissions and review edits with before
-  and after values.
+  and after values. It is a **SHA-256 hash chain** per event: the audit page says "Chain intact" or names the first
+  altered entry, and the published results print an "Audit seal" (the chain hash at publication) so anyone can keep a copy
+  (`manage.py verify_audit`, `/api/events/<id>/audit/verify`, `tests/test_audit_chain.py`). Tamper-evident, not
+  tamper-proof: someone with database write access can rebuild the chain, which only a kept copy of the published
+  hash exposes. Hashes are hidden until a community vote has closed, since they could reveal a vote. See
+  THREAT-MODEL.md.
 - A judge is **never assigned their own team's project**.
 - Organizers can **withdraw a project from judging** (the duplicate "Dry Harbour", say) straight from the
   integrity report. It is audited and reversible, and the project and its reviews stay in the exports.
@@ -140,6 +145,10 @@ DJANGO_CSRF_TRUSTED_ORIGINS: "https://hack.example.org"
 DJANGO_HTTPS: "1"                   # secure cookies, trust X-Forwarded-Proto, HSTS
 DJANGO_PROXY_COUNT: "1"             # reverse proxies in front; without it every visitor shares one address for rate limits and vote flags
 ```
+
+**Check the audit log** at any time with `docker compose exec portal python manage.py verify_audit` (exit code 1 if
+any event's chain is broken). Keep the "Audit seal" hash from the published results page (it appears once any community vote has closed)
+somewhere off the server. The command runs with server access, so it prints the head hash at any time.
 
 Turning demo mode off on an existing volume **revokes the demo on the next boot**:
 - the four fixed sessions are deleted;
@@ -191,7 +200,7 @@ real proxy.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/pytest                                    # 243 tests, about two minutes
+.venv/bin/pytest                                    # 254 tests, about two minutes
 cd src && DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py migrate && \
   DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py seed && \
   DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py runserver 8080

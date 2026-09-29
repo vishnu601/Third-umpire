@@ -73,4 +73,7 @@
   <details style="margin-top:.5rem"><summary>Copy as Markdown (for a blog post)</summary><label class="sr-only" for="md">Markdown</label><textarea id="md" rows="16" readonly onclick="this.select()">{{ markdown }}</textarea></details>
 </div>
 {% endif %}
+{% if anchor %}
+<p class="small muted" style="margin-top:1.5rem"><strong>Audit seal:</strong> <code style="word-break:break-all">{{ anchor }}</code><br>A fingerprint of the event's audit log (every audited assignment, review and change) at the moment these results were published. If that history is edited later, the log will no longer reproduce this fingerprint. Publishing again gives a new seal.</p>
+{% endif %}
 {% endblock %}

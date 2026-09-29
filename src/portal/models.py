@@ -424,6 +424,10 @@ class AuditLog(models.Model):
     target = models.CharField(max_length=128, blank=True)
     detail = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    # SHA-256 chain per event: each entry hashes its own fields plus the previous entry's hash.
+    # services.verify_audit_chain recomputes it, so an edited, deleted or inserted row shows up.
+    prev_hash = models.CharField(max_length=64, blank=True)
+    hash = models.CharField(max_length=64, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

@@ -91,6 +91,15 @@ Forms use Django's CSRF tokens. The JSON API is CSRF-exempt but only accepts `ap
 cross-site form can't send that content type without a CORS preflight, which the portal never answers. Session
 cookies are also `SameSite=Lax` and `HttpOnly`.
 
+## Audit hash chain
+
+`services.audit` inserts the row and links it in the same transaction (`auditchain.seal`): `hash` is SHA-256 over the
+previous row's hash in that event's chain plus the row's own fields. SQLite has one writer at a time, so two rows
+can't claim the same predecessor. `manage.py verify_audit`, the audit page and `/api/events/<id>/audit/verify`
+recompute every chain; the results page prints the hash of the `results.published` entry as a public anchor. Until
+community voting has closed (before it opens, or while it is open) no hash is shown anywhere (head, CSV column, seal): the hashes around a hidden vote row
+would let a guess at that vote be checked.
+
 ## Results engine and caching
 
 `services.event_results(event)` builds the review points (weighted per the current rubric) and calls
@@ -187,7 +196,7 @@ reflects the fixture's real coverage, unfinished batches included.
 
 ## Tests
 
-`tests/` has 243 tests:
+`tests/` has 254 tests:
 - the checker's 7 behaviours;
 - every role and deadline rule through the real pages, with a wrong-role assertion per restricted view;
 - known-answer tests for the maths;
@@ -197,7 +206,8 @@ reflects the fixture's real coverage, unfinished batches included.
 - community voting and comments (`tests/test_t3.py`);
 - rate limits and client-address handling (`tests/test_ratelimit.py`);
 - the JSON event export and its round trip (`tests/test_event_export.py`);
-- the threat-model claims that needed a test of their own (`tests/test_threats.py`).
+- the threat-model claims that needed a test of their own (`tests/test_threats.py`);
+- the audit hash chain: edits, insertions and deletions caught (`tests/test_audit_chain.py`).
 
 `make verify` runs the checker and 12 curl probes against a clean container, plus the test suite.
 

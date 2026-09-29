@@ -4,6 +4,10 @@
 <p class="small"><a href="/events/{{ event.external_id }}/manage">← Manage {{ event.name }}</a></p>
 <h1>Audit log</h1>
 <p class="muted">Every change to the event, its teams, submissions, assignments and scores, including refused late submissions. Newest first. <a href="/api/events/{{ event.external_id }}/audit.csv">Download CSV</a>.</p>
+<div class="card small">{% if chain.ok %}<span class="badge ok">Chain intact</span> All {{ chain.entries }} entries are linked in order (SHA-256), with none missing or edited. {% if chain.head %}Latest fingerprint: <code style="word-break:break-all">{{ chain.head }}</code>{% else %}The latest fingerprint is shown once community voting closes, since it could reveal the latest vote.{% endif %}
+  Someone with database access could rebuild the whole chain, so when you publish, copy the <strong>Audit seal</strong> from the results page and keep it off this server.
+  {% else %}<span class="badge bad">Chain broken</span> at entry #{{ chain.broken_at }}: {% if chain.reason == "link" %}an entry just before it was removed or inserted{% else %}its contents no longer match its fingerprint{% endif %}. The log was changed outside the portal, or the database was restored from another copy. Download the CSV and compare it with your saved seal before changing or publishing results.{% endif %}
+  <a href="/api/events/{{ event.external_id }}/audit/verify">Recheck (JSON)</a></div>
 <form class="row card" method="get">
   <div><label class="sr-only" for="action">Action</label>
     <select id="action" name="action"><option value="">All actions</option>
