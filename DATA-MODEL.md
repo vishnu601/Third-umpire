@@ -1,0 +1,97 @@
+# Data model
+
+Source of truth: [`src/portal/models.py`](src/portal/models.py) and its single migration. Everything below is
+enforced by the database (constraints), not only by the code.
+
+## Entities
+
+```
+Event ─┬─ Track ─────────────┐
+       ├─ Prize (→ Track?)   │
+       ├─ Criterion          │            User (Django auth; username = lower-case email)
+       ├─ EventQuestion      │              │
+       ├─ EventRole ─────────┼── tracks ──  ├─ EventRole (participant | judge | organizer, per event)
+       ├─ JudgeInvite        │              ├─ TeamMembership ── Team
+       ├─ Team ── TeamMembership            ├─ Assignment ── Project
+       ├─ Project (→ Team, → Track?) ─┬─ Tag (M2M)
+       │                              ├─ ProjectImage
+       │                              ├─ ProjectAnswer (→ EventQuestion)
+       │                              ├─ Assignment (→ judge User)
+       │                              └─ Review (→ judge User) ── CriterionScore (→ Criterion)
+       └─ AuditLog (→ actor User?)
+```
+
+| Table | What it holds | Constraints that matter |
+|---|---|---|
+| **Event** | name, description, `submissions_open` (null = open now), `submissions_close`, `judging_close`, `results_published_at`, `reviews_per_project` (assignment target) | `external_id` unique; opens before it closes; judging closes after submissions |
+| **Track** | a category within an event | `(event, external_id)` unique; `PROTECT` from projects, so a track in use can't be deleted |
+| **Prize** | name, free-text value ("800 USD"), optional track (blank = overall) | the count of overall prizes sets the "prize places" used for P(top k) |
+| **EventRole** | user × event × role; judges also carry their fixture id (`jdg_01`) and the tracks they cover | `(user, event, role)` unique; `(event, external_id)` unique when set |
+| **Team** | name, `invite_token` (random, rotatable) | `(event, external_id)` unique; token unique |
+| **TeamMembership** | user on team; `event` copied from the team | **`(event, user)` unique: one team per person per event**, enforced by the database, not by a check that can race |
+| **Project** | the stable submission fields: title, tagline, description, thumbnail, repo/demo-video/live URLs, tags, track; `status` draft or submitted; `submitted_at` | `(event, external_id)` unique; **a submitted project must have `submitted_at`** |
+| **Tag** | tech tags shared across events, lower-case slugs | name unique |
+| **ProjectImage** | gallery images, ordered | max 6 per project (application rule) |
+| **EventQuestion** / **ProjectAnswer** | organizer-defined questions and each project's answers | one answer per project per question |
+| **Criterion** | rubric line: key, name, description, anchors for 1/3/5, relative `weight` | `(event, key)` unique; weight ≥ 0 |
+| **JudgeInvite** | email, single-use token, who created and accepted it, when | token unique |
+| **Assignment** | judge × project, `source` = auto / manual / import / tiebreak | `(judge, project)` unique |
+| **Review** | one judge's review of one project + comment | **`(judge, project)` unique** |
+| **CriterionScore** | one value per criterion per review | `(review, criterion)` unique; **value between 1 and 5** |
+| **AuditLog** | who, what (`action`), which (`target`), JSON detail, when; nullable event for account-level actions | append-only by convention (no update or delete path in the app) |
+
+### Decisions worth defending
+
+- **Roles are rows per event, not user flags.** The same person judges one event and competes in the next; checks
+  are always "role in *this* event". Admin is Django's `is_superuser`; the right to host events is `is_staff`.
+- **Scores are normalized in form: Review → CriterionScore.** Weights live on `Criterion`, not on scores, so an
+  organizer can re-weight after judging and results recompute. Changing weights never rewrites a score.
+- **Nothing derived is stored.** Weighted scores, bias-corrected scores, ranks and uncertainty are computed from
+  reviews on demand (then cached by a fingerprint of the data), so they can't drift from the scores they come from.
+- **`external_id` everywhere an import can land.** It is the fixture's string id (`prj_01`) for imported rows and a
+  random id (`prj_3fa9c2d1`) for rows made in the app. Every URL uses it (database ids appear only in organizer-only form
+  fields), and the import upserts on it.
+- **The duplicate `event` on TeamMembership** exists so the database, not application code, guarantees one team per
+  person per event.
+- **Uploads use random file names** (`thumbnails/<uuid>.png`), so they can't be enumerated and never collide.
+
+## Import: fixtures.json → tables
+
+`python manage.py seed [--fixtures path]` runs on every boot and is idempotent (every write is an upsert on
+`external_id`). It accepts any file in the fixture's shape, so it is also the way to import an event from another
+tool.
+
+| fixtures.json | becomes |
+|---|---|
+| `event` | `Event` (its own `submissions_close`, so the fixture event is closed) |
+| `tracks[]` | `Track` |
+| `judges[]` | `User` (by email) + `EventRole(judge, external_id=id)` + covered tracks |
+| `teams[].members[]` | `User` (by email) + `Team` + `TeamMembership` + `EventRole(participant)` |
+| `projects[]` | `Project` (`summary` → `tagline`; submitted if `submitted_at` is set) |
+| `scores[]` | `Assignment(source=import)` + `Review` + one `CriterionScore` per criterion |
+| criteria keys seen in scores | `Criterion` with weight 1 and default anchors. Existing weights are left alone, so an organizer's changes survive reboots |
+
+Imported users get unusable passwords. In demo mode, the seeded accounts also get the demo password.
+
+## Export: tables → files
+
+All organizer-only (401 anonymous, 403 anyone else), CSV with formula-injection protection (cells starting `=`, `+`,
+`-` or `@` are prefixed with `'`):
+
+| Stage | URL | One row per |
+|---|---|---|
+| Registration | `/api/events/<id>/teams.csv` | team member |
+| Submission | `/api/events/<id>/submissions.csv` | project, drafts included, every field + each custom answer |
+| Assignment | `/api/events/<id>/assignments.csv` | assignment, with source and whether it's reviewed |
+| Scoring | `/api/export.csv?event=<id>` | review: every criterion, weighted score, leniency-adjusted score, comment |
+| Results | `/api/events/<id>/results.csv` | project: rank, score, raw mean, rank band, P(first), P(prize), flags |
+| Audit | `/api/events/<id>/audit.csv` | audit entry, oldest first |
+
+**Whole-database backup and migration out:** the entire state is one SQLite file plus the uploads folder in the
+`portal-data` volume. `docker compose cp portal:/data/db.sqlite3 .` gives a standard SQLite database that any tool
+can read. A JSON export in the fixture's own shape (a full round trip) is on the roadmap, not built.
+
+## Migrations
+
+Django migrations, applied on every boot by the entrypoint (`migrate --noinput`). The schema is one initial migration
+because it was designed during the event. Later changes will be additive migrations.
