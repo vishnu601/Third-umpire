@@ -53,6 +53,10 @@ class Event(models.Model):
     results_published_at = models.DateTimeField(null=True, blank=True)
     # Assignment target: how many judges should review each project.
     reviews_per_project = models.PositiveSmallIntegerField(default=3)
+    # Community vote (T3). Both blank means the event has no public vote.
+    voting_opens = models.DateTimeField(null=True, blank=True)
+    voting_closes = models.DateTimeField(null=True, blank=True)
+    votes_per_voter = models.PositiveSmallIntegerField(default=3)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -65,6 +69,11 @@ class Event(models.Model):
             models.CheckConstraint(
                 condition=Q(judging_close__isnull=True) | Q(judging_close__gte=F("submissions_close")),
                 name="event_judging_closes_after_submissions",
+            ),
+            models.CheckConstraint(
+                condition=(Q(voting_opens__isnull=True) & Q(voting_closes__isnull=True))
+                | (Q(voting_opens__isnull=False) & Q(voting_closes__isnull=False) & Q(voting_opens__lt=F("voting_closes"))),
+                name="event_voting_window_is_whole",
             ),
         ]
 
@@ -84,6 +93,15 @@ class Event(models.Model):
 
     def accepts_reviews(self, now=None):
         return self.judging_close is None or (now or timezone.now()) < self.judging_close
+
+    def voting_phase(self, now=None):
+        """"none" (no community vote), "not_open", "open" or "closed"."""
+        if self.voting_opens is None or self.voting_closes is None:
+            return "none"
+        now = now or timezone.now()
+        if now < self.voting_opens:
+            return "not_open"
+        return "open" if now < self.voting_closes else "closed"
 
     @property
     def results_published(self):
@@ -364,6 +382,37 @@ class CriterionScore(models.Model):
             models.UniqueConstraint(fields=["review", "criterion"], name="one_score_per_review_criterion"),
             models.CheckConstraint(condition=Q(value__gte=1, value__lte=5), name="score_on_five_point_scale"),
         ]
+
+
+class Vote(models.Model):
+    """One community vote. `ip_hash` is a salted hash, so the raw address is never stored."""
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="votes")
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="votes")
+    voter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="votes")
+    created_at = models.DateTimeField(auto_now_add=True)
+    ip_hash = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["voter", "project"], name="one_vote_per_voter_project"),
+        ]
+
+
+class Comment(models.Model):
+    """A public comment on a submitted project. Organizers can hide it; the author can delete it."""
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="comments")
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="comments")
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    hidden_at = models.DateTimeField(null=True, blank=True)
+    hidden_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    hidden_reason = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
 
 
 class AuditLog(models.Model):

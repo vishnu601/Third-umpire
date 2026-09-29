@@ -1,0 +1,12 @@
+{% extends "portal/base.html" %}
+{% block title %}People's choice · {{ event.name }} · Third Umpire{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}">← {{ event.name }}</a></p>
+<h1>People's choice</h1>
+<p class="muted small">Community voting closed {{ event.voting_closes|date:"Y-m-d H:i" }} UTC. Each person had {{ event.votes_per_voter }} vote{{ event.votes_per_voter|pluralize }}; teams could not vote for their own project and judges and organizers did not vote. This is separate from the judges' results.</p>
+<div class="table-scroll"><table class="data">
+  <thead><tr><th class="num">Place</th><th>Project</th><th>Team</th><th class="num">Votes</th></tr></thead>
+  <tbody>{% for r in rows %}<tr><td class="num">{{ r.rank }}</td><td><a href="/projects/{{ event.external_id }}/{{ r.project.external_id }}">{{ r.project.title }}</a></td><td>{{ r.project.team.name }}</td><td class="num">{{ r.votes }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">No projects.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

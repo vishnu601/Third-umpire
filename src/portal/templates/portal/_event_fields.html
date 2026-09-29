@@ -6,3 +6,8 @@
   <div class="field"><label for="judging_close">Judging closes (UTC)</label><input id="judging_close" type="datetime-local" name="judging_close" value="{{ event.judging_close|date:'Y-m-d\TH:i' }}"><div class="hint">Optional.</div></div>
   <div class="field"><label for="reviews_per_project">Reviews per project</label><input id="reviews_per_project" type="number" min="1" max="10" name="reviews_per_project" value="{{ event.reviews_per_project|default:3 }}"><div class="hint">Assignment target.</div></div>
 </div>
+<div class="row">
+  <div class="field"><label for="voting_opens">Community voting opens (UTC)</label><input id="voting_opens" type="datetime-local" name="voting_opens" value="{{ event.voting_opens|date:'Y-m-d\TH:i' }}"><div class="hint">Leave both voting dates blank for no public vote. Voting cannot open before submissions close.</div></div>
+  <div class="field"><label for="voting_closes">Community voting closes (UTC)</label><input id="voting_closes" type="datetime-local" name="voting_closes" value="{{ event.voting_closes|date:'Y-m-d\TH:i' }}"><div class="hint">Vote counts stay hidden from everyone until this time.</div></div>
+  <div class="field"><label for="votes_per_voter">Votes per person</label><input id="votes_per_voter" type="number" min="1" max="20" name="votes_per_voter" value="{{ event.votes_per_voter|default:3 }}"></div>
+</div>

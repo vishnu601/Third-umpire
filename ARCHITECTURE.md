@@ -97,6 +97,32 @@ fixture. The result is cached in a file-based cache shared by all gunicorn worke
 data: review count, latest review update, rubric weights, prize slots and which projects are withdrawn. A new score or weight change is a new key,
 so there's no invalidation code to get wrong. The seed step warms the cache, so the first results page is instant.
 
+## Community voting and comments
+
+All of it lives in `services.py` (`cast_vote`, `retract_vote`, `ballot`, `vote_tallies`, `vote_integrity_report`,
+`post_comment`, `hide_comment`, ...), so the form post and any future API give the same refusals.
+
+- **Window.** `Event.voting_opens` / `voting_closes` (both blank = no vote). `Event.voting_phase()` is compared with
+  `timezone.now()` on every cast and retract (`403 voting_closed`); the client never sends a time. Validation
+  (`validate_voting_window`) makes the window all-or-nothing and forbids opening it before submissions close.
+- **Who may vote.** Any logged-in account except the event's judges and organizers (`conflict_of_interest`) and
+  members of the project's own team (`own_project`). A vote is a `Vote` row with a unique `(voter, project)`
+  constraint; the per-person cap (`votes_per_voter`) is checked before and after the insert so a race cannot exceed it.
+- **Ballot order.** `ballot_order` shuffles the eligible projects with `random.Random(seed)` where the seed is a hash
+  of `(event, voter)`: a voter's order is stable across reloads, different voters get different orders, so position
+  bias spreads out.
+- **Hidden tallies.** `require_votes_visible` is the only gate for tallies and the votes export: until
+  `voting_closes` it answers 401 (API, anonymous) or 403 `results_hidden` to everyone, organizers included. Nothing
+  else (gallery, project page, dashboard) computes per-project counts; the dashboard card shows a total and flags.
+- **Abuse controls.** Rate limits use `ratelimit.hit` (`vote-user` 30/10 min, `vote-ip` 120/10 min,
+  `comment-user` 10/10 min). `Vote.ip_hash` is `sha256(SECRET_KEY + client_ip)`, so the address is never stored or
+  audited. `vote_integrity_report` flags 3+ accounts on one hashed address voting for one project and votes from
+  accounts created after voting opened; flags are shown to organizers and put in the votes CSV, nothing is removed
+  automatically. Every cast, retraction, comment, deletion, hide and unhide is audited.
+- **Comments.** Plain text, stored as typed, escaped by Django's autoescaping when rendered. Authors delete their
+  own; organizers hide with a reason (kept in the row and the audit log, so the record survives) and can unhide.
+  An identical body from the same author on the same project is refused.
+
 ## Demo mode
 
 `DOGFOOD_SEED_SESSIONS=1` (set in `docker-compose.yml`):
@@ -122,7 +148,7 @@ reflects the fixture's real coverage, unfinished batches included.
 
 ## Tests
 
-`tests/` has 157 pytest tests:
+`tests/` has 202 pytest tests:
 - the checker's 7 behaviours;
 - every role and deadline rule through the real pages, with a wrong-role assertion per restricted view;
 - known-answer tests for the maths;
@@ -135,5 +161,5 @@ reflects the fixture's real coverage, unfinished batches included.
 ## Trade-offs we'd revisit at scale
 
 - Media is served by Django; use the reverse proxy for large events.
-- SQLite writes serialize; switch `DATABASES` to Postgres if a public vote is ever added. The ORM code doesn't change.
+- SQLite writes serialize; switch `DATABASES` to Postgres for a large public vote. The ORM code doesn't change.
 - The results cache is per-instance files; a multi-host deployment would point `CACHES` at a shared store.

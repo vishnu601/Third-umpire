@@ -48,6 +48,23 @@
   </div>
 </div>
 
+{% with v=p.voting %}{% if v %}
+<h2>Community voting</h2>
+<div class="card">
+  <p>
+    {% if v.phase == "open" %}<span class="badge ok">Open</span>{% elif v.phase == "not_open" %}<span class="badge">Not open yet</span>{% else %}<span class="badge">Closed</span>{% endif %}
+    <strong>{{ v.report.total }}</strong> vote{{ v.report.total|pluralize }} from {{ v.report.voters }} voter{{ v.report.voters|pluralize }}.
+    {% if v.phase != "closed" %}<span class="small muted">Per-project counts stay hidden from everyone until {{ event.voting_closes|date:"Y-m-d H:i" }} UTC.</span>
+    {% else %}<a class="small" href="/events/{{ event.external_id }}/votes">People's choice results</a>{% endif %}
+  </p>
+  <h3 style="margin-top:0">Vote checks {% if v.report.issues %}<span class="badge warn">{{ v.report.issues }}</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
+  {% for s in v.report.shared_ip %}<div class="small">{{ s.accounts }} accounts behind one address ({{ s.ip_hash }}) voted for the same project: <a href="/projects/{{ event.external_id }}/{{ s.project.external_id }}">{{ s.project.external_id }}</a>.</div>{% endfor %}
+  {% if v.report.new_accounts %}<div class="small">{{ v.report.new_accounts|length }} vote{{ v.report.new_accounts|length|pluralize }} from accounts created after voting opened.</div>{% endif %}
+  {% if not v.report.issues %}<div class="small muted">No shared addresses and no accounts created after voting opened.</div>{% endif %}
+  <p class="small muted">Flags are for a person to look at; no votes are removed automatically.{% if v.phase == "closed" %} The full list is in the votes export.{% endif %}</p>
+</div>
+{% endif %}{% endwith %}
+
 <h2>Judges</h2>
 <div class="table-scroll"><table class="data">
   <thead><tr><th>Judge</th><th>Progress</th><th class="num">Done / assigned</th></tr></thead>

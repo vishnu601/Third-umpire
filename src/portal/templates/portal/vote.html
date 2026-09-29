@@ -1,0 +1,41 @@
+{% extends "portal/base.html" %}
+{% block title %}Vote · {{ event.name }} · Third Umpire{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}">← {{ event.name }}</a></p>
+<h1>People's choice ballot</h1>
+<p class="muted small">Voting {% if phase == "not_open" %}opens{% else %}opened{% endif %} {{ event.voting_opens|date:"Y-m-d H:i" }} UTC and closes {{ event.voting_closes|date:"Y-m-d H:i" }} UTC.
+  Projects are listed in an order that is shuffled per voter, so nobody gets the top slot by default. Vote counts stay hidden until voting closes.</p>
+{% if phase == "not_open" %}
+  <div class="card"><span class="badge warn">Not open yet</span> You can look at the projects now and come back when voting opens.</div>
+{% elif phase == "closed" %}
+  <div class="card"><span class="badge">Closed</span> Voting is over. <a href="/events/{{ event.external_id }}/votes">See the results</a>.</div>
+{% elif b.conflict %}
+  <div class="card"><span class="badge warn">Not eligible</span> {{ b.conflict|capfirst }}.</div>
+{% else %}
+  <div class="card"><span class="badge ok">Open</span> You have <strong>{{ b.left }}</strong> of {{ b.limit }} vote{{ b.limit|pluralize }} left. Take a vote back to move it.</div>
+{% endif %}
+<div class="stack" style="margin-top:1rem">
+{% for r in b.rows %}
+  <div class="card">
+    <div class="row" style="align-items:center">
+      <div>
+        <strong><a href="/projects/{{ event.external_id }}/{{ r.project.external_id }}">{{ r.project.title }}</a></strong>
+        <span class="muted small"> · {{ r.project.team.name }}{% if r.project.track %} · {{ r.project.track.name }}{% endif %}</span>
+        {% if r.project.tagline %}<div class="small">{{ r.project.tagline }}</div>{% endif %}
+      </div>
+      <div class="shrink">
+        {% if r.own %}<span class="badge">Your team's project</span>
+        {% elif r.voted %}
+          <span class="badge ok">Your vote</span>
+          {% if phase == "open" %}<form class="inline" method="post" action="/events/{{ event.external_id }}/vote/{{ r.project.external_id }}/retract">{% csrf_token %}<button class="secondary" type="submit">Take back</button></form>{% endif %}
+        {% elif r.can_vote %}
+          <form class="inline" method="post" action="/events/{{ event.external_id }}/vote/{{ r.project.external_id }}/cast">{% csrf_token %}<button type="submit">Vote</button></form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% empty %}
+  <div class="card muted">No submitted projects to vote on yet.</div>
+{% endfor %}
+</div>
+{% endblock %}

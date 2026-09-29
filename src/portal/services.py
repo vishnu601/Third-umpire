@@ -5,6 +5,7 @@ same answer whether it is reached by a form post or by curl.
 """
 
 import hashlib
+import random
 from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -25,6 +26,7 @@ from . import scoring
 from .models import (
     Assignment,
     AuditLog,
+    Comment,
     Criterion,
     CriterionScore,
     Event,
@@ -40,6 +42,7 @@ from .models import (
     Team,
     TeamMembership,
     Track,
+    Vote,
     mint_id,
 )
 
@@ -125,7 +128,10 @@ def audit(event, actor, action, target="", **detail):
 # --- events -------------------------------------------------------------------
 
 
-EVENT_FIELDS = ("name", "description", "submissions_open", "submissions_close", "judging_close", "reviews_per_project")
+EVENT_FIELDS = (
+    "name", "description", "submissions_open", "submissions_close", "judging_close", "reviews_per_project",
+    "voting_opens", "voting_closes", "votes_per_voter",
+)
 
 # What a 1, 3 and 5 mean. Shared anchors calibrate judges before they score,
 # which shrinks the bias normalization has to remove afterwards.
@@ -144,6 +150,25 @@ def validate_event_fields(fields):
     k = fields.get("reviews_per_project", 3)
     if not isinstance(k, int) or not 1 <= k <= 10:
         raise Refused(400, "invalid_reviews_per_project", "reviews per project must be between 1 and 10")
+    validate_voting_window(fields)
+
+
+MAX_VOTES_PER_VOTER = 20
+
+
+def validate_voting_window(fields):
+    """The community vote is all or nothing, comes after submissions close, and has a sane ballot size."""
+    opens, closes = fields.get("voting_opens"), fields.get("voting_closes")
+    if (opens is None) != (closes is None):
+        raise Refused(400, "invalid_voting_window", "set both voting dates, or leave both empty for no community vote")
+    if opens is not None:
+        if opens >= closes:
+            raise Refused(400, "invalid_voting_window", "voting must open before it closes")
+        if fields.get("submissions_close") and opens < fields["submissions_close"]:
+            raise Refused(400, "invalid_voting_window", "voting cannot open before submissions close")
+    n = fields.get("votes_per_voter", 3)
+    if not isinstance(n, int) or not 1 <= n <= MAX_VOTES_PER_VOTER:
+        raise Refused(400, "invalid_votes_per_voter", f"votes per voter must be between 1 and {MAX_VOTES_PER_VOTER}")
 
 
 def validate_event_dates(opens, closes, judging_close):
@@ -1012,6 +1037,7 @@ def progress(event):
             key=lambda r: (r["done"] - r["assigned"], r["project"].external_id),
         ),
         "integrity": integrity_report(event),
+        "voting": voting_summary(event),
     }
 
 
@@ -1101,3 +1127,261 @@ def possible_duplicates(event):
             seen.add(key)
             out.append({"reason": "same title" if kind == "title" else "same team", "projects": ps})
     return out
+
+
+# --- community voting (T3) ------------------------------------------------------------
+
+
+def ip_hash(ip):
+    """A salted hash of the client address. The raw address is never stored or audited."""
+    return hashlib.sha256((settings.SECRET_KEY + (ip or "")).encode()).hexdigest()
+
+
+def votable_projects(event):
+    return Project.objects.filter(event=event, status=Project.Status.SUBMITTED, withdrawn_at__isnull=True)
+
+
+def ballot_order(event, user, projects):
+    """Every voter sees the projects in their own shuffled order, the same one on every reload.
+
+    Seeding from (event, voter) spreads position bias across the field instead of always
+    favouring whatever the database lists first.
+    """
+    seed = int.from_bytes(hashlib.sha256(f"{event.pk}:{user.pk}".encode()).digest()[:8], "big")
+    ordered = sorted(projects, key=lambda p: p.external_id)  # a stable base, whatever the query returned
+    random.Random(seed).shuffle(ordered)
+    return ordered
+
+
+def votes_left(user, event):
+    return max(0, event.votes_per_voter - Vote.objects.filter(voter=user, event=event).count())
+
+
+def vote_conflict(user, event):
+    """Why this person may not vote in this event at all, or None."""
+    if is_judge(user, event) or is_organizer(user, event):
+        return "judges and organizers of this event cannot vote in it"
+    return None
+
+
+def _open_voting_window(event):
+    phase = event.voting_phase()
+    if phase == "open":
+        return
+    message = {
+        "none": "this event has no community vote",
+        "not_open": f"voting opens at {event.voting_opens.isoformat() if event.voting_opens else ''}",
+        "closed": f"voting closed at {event.voting_closes.isoformat() if event.voting_closes else ''}",
+    }[phase]
+    raise Refused(403, "voting_closed", message)
+
+
+def _vote_limits(user, ip):
+    from . import ratelimit  # deferred: ratelimit imports Refused from this module
+
+    ratelimit.hit("vote-user", user.pk, 30, 600)
+    ratelimit.hit("vote-ip", ip, 120, 600)
+
+
+def cast_vote(project, user, ip=""):
+    """One community vote for one project. Every rule is checked here, on the server clock."""
+    require_login(user)
+    _vote_limits(user, ip)
+    event = project.event
+    _open_voting_window(event)
+    if project.status != Project.Status.SUBMITTED:
+        raise Refused(404, "not_found", "no such project")
+    if project.withdrawn_at:
+        raise Refused(409, "withdrawn", "an organizer withdrew this project")
+    conflict = vote_conflict(user, event)
+    if conflict:
+        raise Refused(403, "conflict_of_interest", conflict)
+    if is_team_member(user, project.team):
+        raise Refused(403, "own_project", "you cannot vote for your own team's project")
+    if Vote.objects.filter(voter=user, project=project).exists():
+        raise Refused(409, "already_voted", "you already voted for this project")
+    if votes_left(user, event) == 0:
+        raise Refused(409, "no_votes_left", f"you have used all {event.votes_per_voter} of your votes; take one back first")
+    try:
+        with transaction.atomic():
+            vote = Vote.objects.create(event=event, project=project, voter=user, ip_hash=ip_hash(ip))
+            if Vote.objects.filter(voter=user, event=event).count() > event.votes_per_voter:  # lost a race
+                raise Refused(409, "no_votes_left", "you have used all your votes")
+            audit(event, user, "vote.cast", project.external_id)
+    except IntegrityError:  # the unique constraint caught a concurrent double vote
+        raise Refused(409, "already_voted", "you already voted for this project")
+    return vote
+
+
+@transaction.atomic
+def retract_vote(project, user, ip=""):
+    require_login(user)
+    _vote_limits(user, ip)
+    _open_voting_window(project.event)
+    vote = Vote.objects.filter(voter=user, project=project).first()
+    if vote is None:
+        raise Refused(404, "no_such_vote", "you have not voted for this project")
+    vote.delete()
+    audit(project.event, user, "vote.retracted", project.external_id)
+
+
+def ballot(event, user):
+    """What one voter sees: their shuffled ballot, what they voted for and why a vote might be refused."""
+    voted = set(Vote.objects.filter(voter=user, event=event).values_list("project_id", flat=True))
+    mine = {m.team_id for m in TeamMembership.objects.filter(user=user, event=event)}
+    projects = votable_projects(event).select_related("team", "track")
+    conflict = vote_conflict(user, event)
+    is_open = event.voting_phase() == "open"
+    left = votes_left(user, event)
+    rows = [
+        {
+            "project": p,
+            "voted": p.id in voted,
+            "own": p.team_id in mine,
+            "can_vote": is_open and not conflict and p.team_id not in mine and p.id not in voted and left > 0,
+        }
+        for p in ballot_order(event, user, projects)
+    ]
+    return {"rows": rows, "left": left, "limit": event.votes_per_voter, "conflict": conflict, "phase": event.voting_phase()}
+
+
+def require_votes_visible(event, user):
+    """Tallies stay hidden from everyone, organizers included, until voting closes."""
+    phase = event.voting_phase()
+    if phase == "none":
+        raise Refused(404, "no_community_vote", "this event has no community vote")
+    if phase != "closed":
+        require_login(user)  # anonymous callers get 401 on the API; nobody gets the numbers
+        raise Refused(403, "results_hidden", f"vote counts are hidden until voting closes at {event.voting_closes.isoformat()}")
+
+
+def vote_tallies(event, user):
+    """People's choice: every votable project with its votes, best first. Ties share a rank."""
+    require_votes_visible(event, user)
+    counts = dict(Vote.objects.filter(event=event).values_list("project_id").annotate(n=Count("id")))
+    rows = sorted(
+        ({"project": p, "votes": counts.get(p.id, 0)} for p in votable_projects(event).select_related("team", "track")),
+        key=lambda r: (-r["votes"], r["project"].title.lower(), r["project"].external_id),
+    )
+    rank = 0
+    for i, r in enumerate(rows):
+        if i == 0 or r["votes"] != rows[i - 1]["votes"]:
+            rank = i + 1
+        r["rank"] = rank
+    return rows
+
+
+SHARED_IP_VOTERS = 3
+
+
+def vote_integrity_report(event):
+    """Patterns that suggest ballot stuffing. Flags are for a human to look at; nothing is removed.
+
+    - shared_ip: SHARED_IP_VOTERS or more distinct accounts behind one hashed address voted for the same project;
+    - new_accounts: the voter's account was created after voting opened.
+    `flags` maps a vote's id to its reasons, for the CSV.
+    """
+    votes = list(Vote.objects.filter(event=event).select_related("project", "voter"))
+    groups = defaultdict(list)
+    for v in votes:
+        if v.ip_hash:
+            groups[(v.project_id, v.ip_hash)].append(v)
+    flags = defaultdict(list)
+    shared = []
+    for (_, h), vs in groups.items():
+        if len({v.voter_id for v in vs}) >= SHARED_IP_VOTERS:
+            shared.append({"project": vs[0].project, "accounts": len({v.voter_id for v in vs}), "ip_hash": h[:12]})
+            for v in vs:
+                flags[v.id].append("shared_ip")
+    late = []
+    if event.voting_opens:
+        for v in votes:
+            if v.voter.date_joined > event.voting_opens:
+                late.append({"project": v.project, "voter": v.voter})
+                flags[v.id].append("new_account")
+    return {
+        "total": len(votes),
+        "voters": len({v.voter_id for v in votes}),
+        "shared_ip": sorted(shared, key=lambda s: (-s["accounts"], s["project"].external_id)),
+        "new_accounts": late,
+        "flags": dict(flags),
+        "issues": len(shared) + len(late),
+    }
+
+
+def voting_summary(event):
+    """The dashboard's community-vote card: flags and a total, never a per-project count."""
+    phase = event.voting_phase()
+    if phase == "none":
+        return None
+    return {"phase": phase, "report": vote_integrity_report(event)}
+
+
+# --- comments (T3) --------------------------------------------------------------------
+
+MAX_COMMENT = 2000
+
+
+def post_comment(project, user, body):
+    require_login(user)
+    from . import ratelimit  # deferred: ratelimit imports Refused from this module
+
+    ratelimit.hit("comment-user", user.pk, 10, 600)
+    if project.status != Project.Status.SUBMITTED:
+        raise Refused(404, "not_found", "no such project")
+    if project.withdrawn_at:
+        raise Refused(409, "withdrawn", "an organizer withdrew this project; it takes no new comments")
+    body = str(body or "").strip()
+    if not 1 <= len(body) <= MAX_COMMENT:
+        raise Refused(400, "invalid_comment", f"a comment is 1 to {MAX_COMMENT} characters")
+    if Comment.objects.filter(project=project, author=user, body=body).exists():
+        raise Refused(409, "duplicate_comment", "you already posted exactly that on this project")
+    with transaction.atomic():
+        comment = Comment.objects.create(project=project, author=user, body=body)
+        audit(project.event, user, "comment.posted", project.external_id, comment=comment.pk)
+    return comment
+
+
+@transaction.atomic
+def delete_comment(comment, user):
+    """Authors delete their own comments. Organizers hide instead, so the record stays."""
+    require_login(user)
+    if comment.author_id != user.pk:
+        raise Refused(403, "not_your_comment", "you can only delete your own comments")
+    audit(comment.project.event, user, "comment.deleted", comment.project.external_id, comment=comment.pk)
+    comment.delete()
+
+
+@transaction.atomic
+def hide_comment(comment, actor, reason):
+    event = comment.project.event
+    require_organizer(actor, event)
+    reason = str(reason or "").strip()[:300]
+    if not reason:
+        raise Refused(400, "missing_reason", "say why the comment is hidden")
+    if comment.hidden_at:
+        return comment
+    comment.hidden_at, comment.hidden_by, comment.hidden_reason = timezone.now(), actor, reason
+    comment.save(update_fields=["hidden_at", "hidden_by", "hidden_reason"])
+    audit(event, actor, "comment.hidden", comment.project.external_id, comment=comment.pk, reason=reason)
+    return comment
+
+
+@transaction.atomic
+def unhide_comment(comment, actor):
+    event = comment.project.event
+    require_organizer(actor, event)
+    if not comment.hidden_at:
+        return comment
+    comment.hidden_at, comment.hidden_by, comment.hidden_reason = None, None, ""
+    comment.save(update_fields=["hidden_at", "hidden_by", "hidden_reason"])
+    audit(event, actor, "comment.unhidden", comment.project.external_id, comment=comment.pk)
+    return comment
+
+
+def visible_comments(project, user):
+    """The public sees non-hidden comments; organizers see every comment, hidden ones marked."""
+    qs = project.comments.select_related("author", "hidden_by")
+    if not is_organizer(user, project.event):
+        qs = qs.filter(hidden_at__isnull=True)
+    return qs

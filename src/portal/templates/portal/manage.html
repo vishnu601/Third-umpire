@@ -123,6 +123,8 @@
   <a href="/api/export.csv?event={{ event.external_id }}">Scores</a> ·
   <a href="/api/events/{{ event.external_id }}/results.csv">Results</a> ·
   <a href="/api/events/{{ event.external_id }}/audit.csv">Audit log</a> ·
+  <a href="/api/events/{{ event.external_id }}/votes.csv">Votes</a> (after voting closes) ·
+  <a href="/api/events/{{ event.external_id }}/comments.csv">Comments</a> ·
   <a href="/api/events/{{ event.external_id }}/export.json">Whole event (JSON)</a>
 </div>
 {% endblock %}

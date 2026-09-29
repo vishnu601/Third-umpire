@@ -8,7 +8,9 @@ from django.shortcuts import render
 from . import scoring, services
 from .api import ApiError, api_view, json_body, require_login
 from .event_export import export_event
-from .models import Assignment, AuditLog, CriterionScore, Event, EventRole, Project, Review, Tag, TeamMembership, Track
+from .models import (
+    Assignment, AuditLog, Comment, CriterionScore, Event, EventRole, Project, Review, Tag, TeamMembership, Track, Vote,
+)
 
 # --- pages -------------------------------------------------------------------
 
@@ -322,6 +324,56 @@ def export_json(request, event_id):
     )
     response["Content-Disposition"] = f'attachment; filename="event-{event.external_id}.json"'
     return response
+
+
+@api_view(["GET"])
+def votes_json(request, event_id):
+    """People's choice tallies. 401 anonymous and 403 everyone else until voting closes; then public."""
+    event = Event.objects.filter(external_id=event_id).first()
+    if event is None:
+        raise ApiError(404, "not_found", "no such event")
+    rows = services.vote_tallies(event, request.user)
+    return JsonResponse(
+        {
+            "event": event.external_id,
+            "voting_closed_at": event.voting_closes.isoformat(),
+            "results": [
+                {"rank": r["rank"], "project": r["project"].external_id, "title": r["project"].title, "votes": r["votes"]}
+                for r in rows
+            ],
+        }
+    )
+
+
+@api_view(["GET"])
+def votes_csv(request, event_id):
+    """Every vote, one row each, with its integrity flags. Organizers only, and only after voting closes:
+    a row per vote is the tally, and the tally is hidden from organizers until then too."""
+    event = organizer_event(request, event_id)
+    services.require_votes_visible(event, request.user)
+    flags = services.vote_integrity_report(event)["flags"]
+    rows = (
+        [v.project.external_id, v.voter.email, v.created_at.isoformat(), v.ip_hash[:12], " ".join(flags.get(v.id, []))]
+        for v in Vote.objects.filter(event=event).select_related("project", "voter").order_by("created_at", "id")
+    )
+    return csv_response(f"votes-{event.external_id}.csv", ["project_id", "voter_email", "created_at", "ip_hash", "flags"], rows)
+
+
+@api_view(["GET"])
+def comments_csv(request, event_id):
+    """Every comment, hidden ones included with who hid them and why."""
+    event = organizer_event(request, event_id)
+    rows = (
+        [c.pk, c.project.external_id, c.author.email, c.created_at.isoformat(), c.body,
+         c.hidden_at.isoformat() if c.hidden_at else "", c.hidden_by.email if c.hidden_by else "", c.hidden_reason]
+        for c in Comment.objects.filter(project__event=event).select_related("project", "author", "hidden_by")
+        .order_by("created_at", "id")
+    )
+    return csv_response(
+        f"comments-{event.external_id}.csv",
+        ["comment_id", "project_id", "author_email", "created_at", "body", "hidden_at", "hidden_by", "hidden_reason"],
+        rows,
+    )
 
 
 @api_view(["GET"])
