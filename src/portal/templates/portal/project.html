@@ -16,6 +16,35 @@
     {% if project.description %}<div class="card">{{ project.description|linebreaks }}</div>{% endif %}
     {% if project.images.all %}<div class="grid">{% for img in project.images.all %}<img class="thumb" src="{{ img.image.url }}" alt="{{ img.caption|default:'Screenshot' }}">{% endfor %}</div>{% endif %}
     {% for a in answers %}{% if a.answer %}<div class="card"><h3 style="margin-top:0">{{ a.question.prompt }}</h3>{{ a.answer|linebreaks }}</div>{% endif %}{% endfor %}
+    {% if project.status == "submitted" %}
+    <div id="comments">
+      <h2>Comments</h2>
+      {% for c in comments %}
+      <div class="card" style="margin-bottom:.75rem">
+        <div class="small muted">{{ c.author.get_full_name|default:"Member" }} · {{ c.created_at|date:"Y-m-d H:i" }} UTC{% if c.hidden_at %} <span class="badge warn">Hidden from the public</span>{% endif %}</div>
+        {{ c.body|linebreaks }}
+        {% if c.hidden_at %}<div class="small muted">Hidden by {{ c.hidden_by.email|default:"an organizer" }}: {{ c.hidden_reason }}</div>{% endif %}
+        <div class="row" style="align-items:center">
+          {% if c.author_id == user.pk %}<form class="inline" method="post" action="/comments/{{ c.pk }}/delete">{% csrf_token %}<button class="danger" type="submit">Delete</button></form>{% endif %}
+          {% if is_organizer %}
+            {% if c.hidden_at %}<form class="inline" method="post" action="/comments/{{ c.pk }}/unhide">{% csrf_token %}<button class="secondary" type="submit">Show again</button></form>
+            {% else %}<form class="inline" method="post" action="/comments/{{ c.pk }}/hide">{% csrf_token %}<label class="sr-only" for="reason-{{ c.pk }}">Reason</label><input id="reason-{{ c.pk }}" type="text" name="reason" placeholder="Reason for hiding" maxlength="300" required><button class="secondary" type="submit">Hide</button></form>{% endif %}
+          {% endif %}
+        </div>
+      </div>
+      {% empty %}<p class="muted">No comments yet.</p>{% endfor %}
+      {% if not can_comment %}
+        <p class="muted small">This project takes no new comments.</p>
+      {% elif user.is_authenticated %}
+        <form class="card" method="post" action="/projects/{{ project.event.external_id }}/{{ project.external_id }}/comments">{% csrf_token %}
+          <div class="field"><label for="comment-body">Add a comment</label><textarea id="comment-body" name="body" maxlength="2000" required></textarea><div class="hint">Up to 2000 characters. Organizers can hide comments that break the rules.</div></div>
+          <button type="submit">Post comment</button>
+        </form>
+      {% else %}
+        <p><a href="/login?next={{ request.get_full_path|urlencode }}">Log in</a> to comment.</p>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
   <aside class="stack">
     <div class="card">

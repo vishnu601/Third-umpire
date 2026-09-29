@@ -20,6 +20,15 @@ urlpatterns = [
     path("events/new", pages.event_new, name="event-new"),
     path("events/<str:event_id>", pages.event_detail, name="event"),
     path("events/<str:event_id>/results", pages.results, name="results"),
+    # community voting and comments
+    path("events/<str:event_id>/vote", pages.vote_ballot, name="vote"),
+    path("events/<str:event_id>/vote/<str:project_id>/cast", pages.vote_cast, name="vote-cast"),
+    path("events/<str:event_id>/vote/<str:project_id>/retract", pages.vote_retract, name="vote-retract"),
+    path("events/<str:event_id>/votes", pages.vote_results, name="votes"),
+    path("projects/<str:event_id>/<str:project_id>/comments", pages.comment_post, name="comment-post"),
+    path("comments/<int:comment_id>/delete", pages.comment_delete, name="comment-delete"),
+    path("comments/<int:comment_id>/hide", pages.comment_hide, name="comment-hide"),
+    path("comments/<int:comment_id>/unhide", pages.comment_unhide, name="comment-unhide"),
     # participants
     path("events/<str:event_id>/teams", pages.team_create, name="team-create"),
     path("teams/<str:team_id>", pages.team_detail, name="team"),
@@ -48,4 +57,7 @@ urlpatterns = [
     path("api/events/<str:event_id>/submissions.csv", views.submissions_csv, name="api-submissions-csv"),
     path("api/events/<str:event_id>/assignments.csv", views.assignments_csv, name="api-assignments-csv"),
     path("api/events/<str:event_id>/audit.csv", views.audit_csv, name="api-audit-csv"),
+    path("api/events/<str:event_id>/votes", views.votes_json, name="api-votes"),
+    path("api/events/<str:event_id>/votes.csv", views.votes_csv, name="api-votes-csv"),
+    path("api/events/<str:event_id>/comments.csv", views.comments_csv, name="api-comments-csv"),
 ]

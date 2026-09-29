@@ -31,8 +31,8 @@ T2  csv export works .................. PASS
 claimed T1 T2, verified T1 T2
 ```
 
-Full output: [acceptance-report.txt](acceptance-report.txt). We claim **T1 and T2**. T3 and T4 are not built and not
-claimed.
+Full output: [acceptance-report.txt](acceptance-report.txt). We claim **T1 and T2**. T3 (community voting and comments) is built and tested
+(see the table below) but `.dogfood.toml` is left for the maintainers to update; T4 is not built and not claimed.
 
 ## Try it (demo mode)
 
@@ -68,7 +68,7 @@ it). The checker's cookies (`Cookie: session=org_7f2a` and so on) are printed at
 
 ## What it does, and where to check it
 
-Every claim below has a test you can run (`.venv/bin/pytest`, 157 tests) and, for T1/T2 checker items, a `run.py`
+Every claim below has a test you can run (`.venv/bin/pytest`, 202 tests) and, for T1/T2 checker items, a `run.py`
 line.
 
 | Tier item | Where | Evidence |
@@ -86,6 +86,12 @@ line.
 | Live progress dashboard | `/events/<id>/dashboard` (refreshes every 10 s), `/api/events/<id>/progress` | `::test_dashboard_shows_the_planted_cases`, `::test_progress_api` |
 | Cross-judge normalization, documented | two-way model + residual bootstrap: [JUDGING.md](JUDGING.md), [docs/proof/](docs/proof/) | `tests/test_scoring.py`, `tests/test_simulation.py`, `tests/test_results.py` |
 | CSV export (at every stage) | teams, submissions, assignments, scores, results, audit | `run.py` "csv export works", `::test_stage_csv_exports`, `tests/test_export.py` |
+| **T3** Community voting (authenticated) | `/events/<id>/vote`; window and votes per person set on *Manage*; own team, judges and organizers cannot vote; the window and the per-person limit are enforced on the server clock | `tests/test_t3.py::test_voting_window_validation`, `::test_window_is_enforced_on_the_server_clock`, `::test_cannot_vote_for_your_own_team`, `::test_judges_and_organizers_cannot_vote`, `::test_votes_per_voter_limit_and_retract_frees_a_vote`, `::test_second_vote_on_a_project_is_refused_and_the_database_agrees`, `::test_retract_rules` |
+| Randomized ballot order | each voter gets a stable shuffle seeded by (event, voter) | `::test_ballot_order_is_stable_per_voter_and_differs_between_voters`, `::test_ballot_page_shows_state_and_takes_votes` |
+| Results hidden during voting | `/events/<id>/votes` and `/api/events/<id>/votes` answer 403 `results_hidden` to everyone, organizers too, until voting closes; then public | `::test_tallies_are_hidden_from_everyone_while_voting_is_open_or_pending`, `::test_tallies_are_public_after_close`, `::test_no_vote_counts_leak_elsewhere_while_voting_is_open` |
+| Project comments with moderation | comment box on each project page; authors delete their own, organizers hide (with a reason) and unhide; bodies are escaped | `::test_post_comment_validates_and_shows_it_escaped`, `::test_authors_delete_their_own_comments_only`, `::test_organizers_hide_and_unhide_comments_and_others_cannot` |
+| Anti-abuse: rate limits, duplicate detection, audit | per-account and per-address limits on votes, per-account on comments; unique vote per voter and project; identical-comment refusal; a "Community voting" card on the dashboard flags 3+ accounts on one address voting for the same project and accounts created after voting opened; votes and comments are audited | `::test_vote_rate_limits`, `::test_vote_rate_limit_per_address`, `::test_comment_rate_limit`, `::test_duplicate_comment_is_refused`, `::test_integrity_report_flags_shared_addresses_and_new_accounts`, `::test_dashboard_card_shows_flags_and_totals_to_organizers_only`, `::test_vote_audit_trail`, `::test_the_ip_is_stored_only_as_a_salted_hash` |
+| Votes and comments exports | `/api/events/<id>/votes.csv` (after voting closes) and `/comments.csv`, organizer only | `::test_votes_csv_is_organizer_only_and_waits_for_the_close`, `::test_comments_csv_is_organizer_only` |
 
 **Beyond the checklist:**
 - The **integrity report** finds all of the fixture's planted cases.
@@ -151,7 +157,7 @@ results cache). **Backup** is copying that volume, or `docker compose cp portal:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/pytest                                    # 157 tests, about a minute
+.venv/bin/pytest                                    # 202 tests, about a minute
 cd src && DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py migrate && \
   DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py seed && \
   DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py runserver 8080
@@ -162,8 +168,15 @@ cd src && DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py migrate && \
 - **No email.** Judge invites and team invites are links the organizer or team copies by hand. That's deliberate,
   because the portal must run offline, but it means no password reset flow either (an admin resets passwords with
   `manage.py changepassword`).
-- **No rate limiting or CAPTCHA** on signup and login. There is no community voting (T3), which is where abuse
-  matters most.
+- **No CAPTCHA and no email verification.** Login, signup, votes and comments are rate limited (per account and
+  per address; see `ratelimit.py`), but because the portal must run offline there is no email round trip, so anyone
+  can make accounts with addresses they do not own. That is the main way to stuff the community vote. What we do
+  instead: a vote needs an account, one vote per person per project, a per-person cap, hashed-address and
+  account-age flags on the organizer dashboard, and an audit trail. Flags are for a human to check; the portal never
+  removes a vote by itself. Behind a shared NAT (a venue) the address checks can over-flag, and `DJANGO_PROXY_COUNT`
+  must be right or every voter looks like one address.
+- **Vote counts are hidden from organizers too** until voting closes, so the votes export is refused until then.
+  During voting an organizer sees the total and the flags, not who is ahead.
 - **SQLite** handles one writer at a time. That is fine for hundreds of participants and dozens of judges, not for a
   10,000-person public vote.
 - **Uploads are served by Django itself.** That's simple and fine at hackathon scale; a large event should serve
@@ -171,7 +184,9 @@ cd src && DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py migrate && \
   it really is. It is then served with `Content-Security-Policy: default-src 'none'; sandbox` and `nosniff`, so a
   crafted file can't run script on the portal's origin. A whole form is capped at 15 MB before it is parsed.
 - **The 80% rank bands run slightly narrow** (73% coverage in simulation); see JUDGING.md section 6.
-- **Not built:** T3 (voting, comments), T4 (REST API for every action, webhooks, certificates, signed judge records,
+- **Voting is HTML only.** Casting and taking back votes, and commenting, are form posts (the API only reads
+  tallies and exports). Comments cannot be edited, only deleted by their author.
+- **Not built:** T4 (REST API for every action, webhooks, certificates, signed judge records,
   widget), a JSON export/import of a whole event (CSV exports and the SQLite file are the way out today), OpenAPI,
   and pairwise judging.
 - A project reviewed only by flat judges falls back to its raw average (flagged low confidence).

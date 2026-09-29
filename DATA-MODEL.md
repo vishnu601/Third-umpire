@@ -17,13 +17,15 @@ Event ─┬─ Track ─────────────┐
        │                              ├─ ProjectImage
        │                              ├─ ProjectAnswer (→ EventQuestion)
        │                              ├─ Assignment (→ judge User)
-       │                              └─ Review (→ judge User) ── CriterionScore (→ Criterion)
+       │                              ├─ Review (→ judge User) ── CriterionScore (→ Criterion)
+       │                              ├─ Vote (→ voter User)
+       │                              └─ Comment (→ author User)
        └─ AuditLog (→ actor User?)
 ```
 
 | Table | What it holds | Constraints that matter |
 |---|---|---|
-| **Event** | name, description, `submissions_open` (null = open now), `submissions_close`, `judging_close`, `results_published_at`, `reviews_per_project` (assignment target) | `external_id` unique; opens before it closes; judging closes after submissions |
+| **Event** | name, description, `submissions_open` (null = open now), `submissions_close`, `judging_close`, `results_published_at`, `reviews_per_project` (assignment target), `voting_opens` / `voting_closes` (both null = no community vote), `votes_per_voter` (default 3, 1 to 20 by the application) | `external_id` unique; opens before it closes; judging closes after submissions; **the voting window is both dates or neither, opening before it closes** (application also requires it to open no earlier than `submissions_close`) |
 | **Track** | a category within an event | `(event, external_id)` unique; `PROTECT` from projects, so a track in use can't be deleted |
 | **Prize** | name, free-text value ("800 USD"), optional track (blank = overall) | the count of overall prizes sets the "prize places" used for P(top k) |
 | **EventRole** | user × event × role; judges also carry their fixture id (`jdg_01`) and the tracks they cover | `(user, event, role)` unique; `(event, external_id)` unique when set |
@@ -38,6 +40,8 @@ Event ─┬─ Track ─────────────┐
 | **Assignment** | judge × project, `source` = auto / manual / import / tiebreak | `(judge, project)` unique |
 | **Review** | one judge's review of one project + comment | **`(judge, project)` unique** |
 | **CriterionScore** | one value per criterion per review | `(review, criterion)` unique; **value between 1 and 5** |
+| **Vote** | one community vote: event, project, voter, `created_at`, `ip_hash` (sha256 of the secret key + client address; never the address) | **`(voter, project)` unique** |
+| **Comment** | a public comment on a project: author, body, `created_at`, and when hidden: `hidden_at`, `hidden_by`, `hidden_reason` | none beyond the foreign keys; length, duplicates and rate are application rules |
 | **AuditLog** | who, what (`action`), which (`target`), JSON detail, when; nullable event for account-level actions | append-only by convention (no update or delete path in the app) |
 
 ### Decisions worth defending
@@ -93,6 +97,11 @@ All organizer-only (401 anonymous, 403 anyone else), CSV with formula-injection 
 | Scoring | `/api/export.csv?event=<id>` | review: every criterion, weighted score, leniency-adjusted score, comment |
 | Results | `/api/events/<id>/results.csv` | project: rank, score, raw mean, rank band, P(first), P(prize), flags |
 | Audit | `/api/events/<id>/audit.csv` | audit entry, oldest first |
+| Community votes | `/api/events/<id>/votes.csv` | vote: project, voter email, time, first 12 characters of `ip_hash`, integrity flags. **403 `results_hidden` until voting closes**, because a row per vote is the tally |
+| Comments | `/api/events/<id>/comments.csv` | comment, hidden ones included with who hid them and why |
+
+The public People's choice tallies are `/events/<id>/votes` and `/api/events/<id>/votes` (JSON), visible to anyone
+once voting has closed and to no one before.
 
 **Whole-database backup and migration out:** the entire state is one SQLite file plus the uploads folder in the
 `portal-data` volume. `docker compose cp portal:/data/db.sqlite3 .` gives a standard SQLite database that any tool
@@ -101,4 +110,5 @@ can read. A JSON export in the fixture's own shape (a full round trip) is on the
 ## Migrations
 
 Django migrations, applied on every boot by the entrypoint (`migrate --noinput`). The schema is one initial migration
-because it was designed during the event. Later changes will be additive migrations.
+because it was designed during the event. Later changes are additive migrations: `0002_project_withdrawn`, and
+`0003_t3_voting_comments` (the voting window on `Event`, `Vote`, `Comment`).

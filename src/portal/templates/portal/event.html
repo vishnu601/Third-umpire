@@ -25,6 +25,8 @@
     <div class="card">
       <a href="/projects?event={{ event.external_id }}">Browse this event's projects</a>
       {% if event.results_published %}<br><a href="/events/{{ event.external_id }}/results">Results</a>{% endif %}
+      {% if voting_phase == "open" or voting_phase == "not_open" %}<br><a href="/events/{{ event.external_id }}/vote">Community vote{% if voting_phase == "open" %}: cast your votes{% else %} (opens {{ event.voting_opens|date:"Y-m-d H:i" }} UTC){% endif %}</a>
+      {% elif voting_phase == "closed" %}<br><a href="/events/{{ event.external_id }}/votes">People's choice results</a>{% endif %}
     </div>
     {% if is_organizer %}
     <div class="card"><h3 style="margin-top:0">Organizer</h3>

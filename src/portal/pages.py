@@ -27,6 +27,7 @@ from . import ratelimit, services
 from .models import (
     Assignment,
     AuditLog,
+    Comment,
     Criterion,
     Event,
     EventQuestion,
@@ -82,6 +83,10 @@ def event_fields(post):
         k = int(post.get("reviews_per_project") or 3)
     except ValueError:
         raise Refused(400, "invalid_reviews_per_project", "reviews per project must be a number")
+    try:
+        votes = int(post.get("votes_per_voter") or 3)
+    except ValueError:
+        raise Refused(400, "invalid_votes_per_voter", "votes per voter must be a number")
     return {
         "reviews_per_project": k,
         "name": (post.get("name") or "").strip()[:200] or _missing("name"),
@@ -89,6 +94,9 @@ def event_fields(post):
         "submissions_open": parse_dt(post.get("submissions_open"), "Submissions open"),
         "submissions_close": parse_dt(post.get("submissions_close"), "Submissions close"),
         "judging_close": parse_dt(post.get("judging_close"), "Judging close"),
+        "voting_opens": parse_dt(post.get("voting_opens"), "Voting opens"),
+        "voting_closes": parse_dt(post.get("voting_closes"), "Voting closes"),
+        "votes_per_voter": votes,
     }
 
 
@@ -187,6 +195,7 @@ def event_detail(request, event_id):
         {
             "event": event,
             "phase": event.phase(),
+            "voting_phase": event.voting_phase(),
             "tracks": event.tracks.all(),
             "prizes": event.prizes.select_related("track"),
             "criteria": event.criteria.all(),
@@ -376,8 +385,125 @@ def project_detail(request, event_id, project_id):
             "members": project.team.members.all(),
             "answers": project.answers.select_related("question").order_by("question__position"),
             "can_edit": services.is_team_member(request.user, project.team) and project.event.accepts_submissions(),
+            "comments": services.visible_comments(project, request.user),
+            "can_comment": project.status == Project.Status.SUBMITTED and not project.withdrawn_at,
+            "is_organizer": services.is_organizer(request.user, project.event),
         },
     )
+
+
+# --- community voting and comments (T3) ---------------------------------------------------
+
+
+def _back_with_message(request, error, url):
+    """A refused form post that the person can fix: flash the reason and return to the page they were on."""
+    messages.error(request, error.message)
+    return redirect(url)
+
+
+@page
+def vote_ballot(request, event_id):
+    event = get_object_or_404(Event, external_id=event_id)
+    services.require_login(request.user)
+    if event.voting_phase() == "none":
+        raise Refused(404, "no_community_vote", "this event has no community vote")
+    return render(
+        request,
+        "portal/vote.html",
+        {"event": event, "b": services.ballot(event, request.user), "phase": event.voting_phase()},
+    )
+
+
+@page
+@require_POST
+def vote_cast(request, event_id, project_id):
+    project = get_object_or_404(
+        Project.objects.select_related("event", "team"), event__external_id=event_id, external_id=project_id
+    )
+    try:
+        services.cast_vote(project, request.user, ratelimit.client_ip(request))
+    except Refused as e:
+        if e.status != 409:
+            raise
+        return _back_with_message(request, e, f"/events/{event_id}/vote")
+    messages.success(request, f"Voted for {project.title}.")
+    return redirect(f"/events/{event_id}/vote")
+
+
+@page
+@require_POST
+def vote_retract(request, event_id, project_id):
+    project = get_object_or_404(
+        Project.objects.select_related("event", "team"), event__external_id=event_id, external_id=project_id
+    )
+    services.retract_vote(project, request.user, ratelimit.client_ip(request))
+    messages.success(request, f"Took back your vote for {project.title}.")
+    return redirect(f"/events/{event_id}/vote")
+
+
+@page
+def vote_results(request, event_id):
+    """People's choice tallies. Nobody sees them, organizers included, until voting closes."""
+    event = get_object_or_404(Event, external_id=event_id)
+    return render(request, "portal/votes.html", {"event": event, "rows": services.vote_tallies(event, request.user)})
+
+
+@page
+@require_POST
+def comment_post(request, event_id, project_id):
+    project = get_object_or_404(
+        Project.objects.select_related("event", "team"), event__external_id=event_id, external_id=project_id
+    )
+    url = f"/projects/{event_id}/{project_id}"
+    try:
+        services.post_comment(project, request.user, request.POST.get("body"))
+    except Refused as e:
+        if e.status not in (400, 409):
+            raise
+        return _back_with_message(request, e, url + "#comments")
+    messages.success(request, "Comment posted.")
+    return redirect(url + "#comments")
+
+
+def _comment_or_404(comment_id):
+    return get_object_or_404(Comment.objects.select_related("project__event"), pk=comment_id)
+
+
+def _project_url(comment):
+    return f"/projects/{comment.project.event.external_id}/{comment.project.external_id}#comments"
+
+
+@page
+@require_POST
+def comment_delete(request, comment_id):
+    comment = _comment_or_404(comment_id)
+    url = _project_url(comment)
+    services.delete_comment(comment, request.user)
+    messages.success(request, "Comment deleted.")
+    return redirect(url)
+
+
+@page
+@require_POST
+def comment_hide(request, comment_id):
+    comment = _comment_or_404(comment_id)
+    try:
+        services.hide_comment(comment, request.user, request.POST.get("reason"))
+    except Refused as e:
+        if e.status != 400:
+            raise
+        return _back_with_message(request, e, _project_url(comment))
+    messages.success(request, "Comment hidden from the public.")
+    return redirect(_project_url(comment))
+
+
+@page
+@require_POST
+def comment_unhide(request, comment_id):
+    comment = _comment_or_404(comment_id)
+    services.unhide_comment(comment, request.user)
+    messages.success(request, "Comment is public again.")
+    return redirect(_project_url(comment))
 
 
 # --- judging ------------------------------------------------------------------------------
@@ -620,7 +746,7 @@ def results(request, event_id):
     return render(request, "portal/results.html", ctx)
 
 
-AUDIT_GROUPS = ["deadline", "project", "team", "review", "assignments", "judge", "rubric", "event", "results", "role"]
+AUDIT_GROUPS = ["deadline", "project", "team", "review", "assignments", "judge", "rubric", "event", "results", "role", "vote", "comment"]
 
 
 @page
