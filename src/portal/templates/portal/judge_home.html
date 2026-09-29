@@ -15,5 +15,7 @@
     {% empty %}<tr><td colspan="4" class="muted">Nothing assigned yet.</td></tr>{% endfor %}</tbody>
   </table></div>
   {% endwith %}
+{% empty %}
+  <div class="empty"><strong>No events yet.</strong>Events you are judging will appear here once an organizer adds you.</div>
 {% endfor %}
 {% endblock %}
