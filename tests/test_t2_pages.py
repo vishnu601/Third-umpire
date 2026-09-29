@@ -2,6 +2,7 @@
 
 import csv
 import io
+import re
 from datetime import timedelta
 
 import pytest
@@ -189,7 +190,7 @@ def test_score_page_never_shows_a_peers_review(world):
     services.save_review(project, a, {"functionality": 1, "quality": 1, "innovation": 1}, "SECRET-PEER-COMMENT")
     body = client_for(b).get(f"/judge/{event.external_id}/{project.external_id}").content.decode()
     assert "SECRET-PEER-COMMENT" not in body
-    assert "checked" not in body
+    assert not re.search(r"<input[^>]*\bchecked\b", body)  # no radio pre-filled from a peer's review
 
 
 def test_judging_closes(world):

@@ -20,7 +20,7 @@ probes, the test suite if `.venv` exists).
 ## Acceptance report
 
 ```
-claimed: T1 T2
+claimed: T1 T2 T3
 T1  gallery is public ................. PASS
 T1  project from fixtures shown ....... PASS
 T1  closed event refuses submissions .. PASS
@@ -28,11 +28,15 @@ T2  judge sees own scores ............. PASS
 T2  judge cannot see peer scores ...... PASS
 T2  participant blocked ............... PASS
 T2  csv export works .................. PASS
-claimed T1 T2, verified T1 T2
+claimed T1 T2 T3, verified T1 T2
+note: claimed but not verified: T3
 ```
 
-Full output: [acceptance-report.txt](acceptance-report.txt). We claim **T1 and T2**. T3 (community voting and comments) is built and tested
-(see the table below) but `.dogfood.toml` is left for the maintainers to update; T4 is not built and not claimed.
+Full output: [acceptance-report.txt](acceptance-report.txt). We claim **T1, T2 and T3**. `run.py` has checks for T1
+and T2 only, so it prints the `note:` line for any T3 claim; T3 is verified by hand. The evidence for every T3 item
+(community voting, comments, results hidden during the window, randomized ballots, anti-abuse) is in the table
+below and in `tests/test_t3.py`, and the defences are argued in [THREAT-MODEL.md](THREAT-MODEL.md) section 3. T4 is
+not built and not claimed.
 
 ## Try it (demo mode)
 
@@ -113,6 +117,8 @@ line.
 - [ARCHITECTURE.md](ARCHITECTURE.md): the shape of the system and why.
 - [DATA-MODEL.md](DATA-MODEL.md): schema, constraints, import and export.
 - [JUDGING.md](JUDGING.md): assignment, scoring maths, normalization, the proof.
+- [THREAT-MODEL.md](THREAT-MODEL.md): Sybil voters, ballot stuffing, collusion and the web attacks around them,
+  each with the code that defends it, the test that proves it, and the residual risk.
 
 ## Running it for real
 

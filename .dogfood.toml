@@ -4,7 +4,7 @@ base_url = "http://localhost:8080"
 
 [tiers]
 # Honest claims only: add a tier when every feature in it is built (SPEC.md s3).
-claimed = ["T1", "T2"]
+claimed = ["T1", "T2", "T3"]
 pitch = "A one-container Django portal whose judging engine corrects judge bias with an explainable two-way model and says when the top places are too close to call."
 
 [auth]
