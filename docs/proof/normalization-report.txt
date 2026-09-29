@@ -1,0 +1,24 @@
+Event evt_01: 126 reviews, 30 judges, 41 projects, 1 connected component(s)
+Two-way model: mu=3.556, residual sd=0.465, leniency prior=2 pseudo-reviews, 400 bootstrap draws, prize places=3
+Flat judges excluded from the fit: jdg_07
+Spread of judges' average given score: raw sd=0.413, after removing leniency sd=0.268
+Harshest judges:  jdg_01 -0.47 (n=1), jdg_10 -0.42 (n=3), jdg_25 -0.28 (n=5), jdg_14 -0.25 (n=3)
+Most lenient:     jdg_15 +0.37 (n=6), jdg_02 +0.35 (n=6), jdg_13 +0.24 (n=3), jdg_26 +0.22 (n=10)
+
+model  raw    z  project  score   raw   n    band    P1  Ptop
+    1    1    3  prj_11    4.33  4.33   4   1-11    14%   42%  too close
+    2    2    1  prj_34    4.29  4.33   3   1-14    22%   47%  too close
+    3    4    6  prj_25    4.22  4.11   3   1-17    12%   33%  too close
+    4    5    4  prj_37    4.10  4.08   4   2-17     6%   22%  too close
+    5    6    5  prj_16    4.10  4.00   3   2-23     5%   21%  too close
+    6    3    7  prj_10    3.98  4.17   2   1-23    11%   28%  too close
+    7    7    2  prj_33    3.97  4.00   3   2-24     7%   20%  too close
+    8    8   12  prj_21    3.91  3.89   3   4-27     4%   10%
+    9   11   22  prj_38    3.89  3.78   3   3-26     4%   14%  too close
+   10   10   15  prj_08    3.84  3.80   5   6-26     0%    2%
+   11    9    9  prj_41    3.81  3.83   4   5-26     1%    3%
+   12   12   13  prj_04    3.77  3.78   3   4-28     1%    8%
+
+Largest moves, raw mean -> model: prj_19 14->31, prj_12 27->17, prj_14 29->20, prj_24 21->14, prj_01 26->19
+Kendall tau vs model: raw mean 0.80, z-score 0.73
+Too close to call for the top 3: prj_11, prj_34, prj_25, prj_37, prj_16, prj_10, prj_33, prj_38

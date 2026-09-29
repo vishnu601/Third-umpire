@@ -11,8 +11,9 @@
 4. Flat judges (two or more reviews, all identical) say nothing about which
    project is better, so they are left out of the fit. A project reviewed only
    by flat judges falls back to its raw mean and is marked low confidence.
-5. Uncertainty comes from a seeded bootstrap: each project's reviews are
-   resampled with replacement and the model refitted. That gives a rank band,
+5. Uncertainty comes from a seeded residual bootstrap: the fitted model's
+   residuals (scaled up for the parameters fitted) are redrawn onto every
+   review and the model is refitted. That gives a rank band,
    P(first) and P(in the prize places), and flags projects whose placing is
    too close to call.
 
@@ -258,19 +259,27 @@ def analyse(points, prize_slots=3, prior_weight=DEFAULT_PRIOR_WEIGHT, draws=DEFA
         )
 
     if draws:
+        # Residual bootstrap: keep the fitted model, redraw every used review's
+        # noise from the model's residuals and refit. Residuals are scaled by
+        # sqrt(N / degrees of freedom) because a fit with one parameter per
+        # project and per judge leaves residuals smaller than the true noise.
+        # Refitting each draw carries the uncertainty in judges' leniency
+        # through to the ranking, which resampling a project's own 2-4 reviews
+        # would not.
         rng = random.Random(seed)
         ranks = defaultdict(list)
-        projects = sorted(by_p)
+        fitted = [(pt, m.mu + m.quality[pt.project] + m.leniency[pt.judge]) for pt in used]
+        residuals = [pt.raw - f for pt, f in fitted]
+        dof = len(used) - len(m.quality) - len(m.leniency) + 1
+        scale = math.sqrt(len(used) / dof) if dof > 0 else 1.0
+        residuals = [r * scale for r in residuals] or [0.0]
         for _ in range(draws):
-            sample = []
-            for p in projects:
-                rows = used_by_p[p]
-                if rows:
-                    sample.extend(rng.choices(rows, k=len(rows)))
+            sample = [
+                ReviewPoint(judge=pt.judge, project=pt.project, raw=f + rng.choice(residuals)) for pt, f in fitted
+            ]
             fb = {}
             for p in fallback:
-                rows = by_p[p]
-                picks = rng.choices(rows, k=len(rows))
+                picks = rng.choices(by_p[p], k=len(by_p[p]))
                 fb[p] = sum(x.raw for x in picks) / len(picks)
             bm = fit(sample, prior_weight, iters=300, tol=1e-7, start=m)
             s = scores_from(bm, fb)

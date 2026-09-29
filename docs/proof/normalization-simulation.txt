@@ -1,0 +1,8 @@
+Design: 126 reviews from evt_01. Calibrated from its own fit: quality sd=0.62, leniency sd=0.68, noise sd=0.43, mu=3.57. 300 simulated events, seed 20260929.
+
+method                    Kendall tau  true winner found  true top-3 found
+plain mean               0.601 ± 0.075               34%               50%
+per-judge z-score        0.622 ± 0.061               26%               48%
+two-way model            0.654 ± 0.064               42%               56%
+
+80% rank bands contained the true rank 73% of the time (80 simulated events x 41 projects).
