@@ -4,6 +4,7 @@ import json
 from datetime import timedelta
 from io import StringIO
 
+import pytest
 from django.core.management import call_command
 
 from portal import services
@@ -236,3 +237,16 @@ def test_organizer_of_another_event_cannot_export_this_one(world, seeded):
 def test_manage_page_links_the_export(seeded):
     body = client_as(ORGANIZER).get("/events/evt_01/manage").content.decode()
     assert "/api/events/evt_01/export.json" in body
+
+
+@pytest.mark.parametrize("sessions", [False, True])
+def test_seed_imports_an_event_that_is_not_the_organisers_fixture(db, tmp_path, fixture_data, sessions):
+    # different event id, judge ids and emails: nothing demo mode looks for exists in it
+    text = json.dumps(fixture_data).replace('"evt_01"', '"evt_other"').replace('"jdg_', '"j_').replace(
+        "@example.org", "@other.test")
+    path = tmp_path / "other.json"
+    path.write_text(text)
+    call_command("seed", fixtures=str(path), sessions=sessions, warm=False, verbosity=0)
+    event = Event.objects.get(external_id="evt_other")
+    assert event.projects.count() == len(fixture_data["projects"])
+    assert Review.objects.filter(project__event=event).count() == len(fixture_data["scores"])

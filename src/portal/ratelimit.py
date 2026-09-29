@@ -17,17 +17,21 @@ import time
 from django.conf import settings
 from django.core.cache import cache
 
-from .services import Refused
+from .errors import Refused
 
 LOGIN_PER_ACCOUNT = 10  # attempts per account per window
 LOGIN_PER_IP = 50  # a venue's shared NAT address needs headroom
 LOGIN_WINDOW = 15 * 60
-SIGNUP_PER_IP = 30
-SIGNUP_WINDOW = 60 * 60
+SIGNUP_WINDOW = 60 * 60  # per-address signups: settings.DOGFOOD_RATE_LIMITS_SIGNUP_PER_IP
+VOTE_PER_USER = 30
+VOTE_PER_IP = 120
+VOTE_WINDOW = 10 * 60
+COMMENT_PER_USER = 10
+COMMENT_WINDOW = 10 * 60
 
 
 def hit(scope, ident, limit, window):
-    if not getattr(settings, "DOGFOOD_RATE_LIMITS", True) or not ident:
+    if not settings.DOGFOOD_RATE_LIMITS or not ident:
         return
     key = "rl:" + hashlib.sha256(f"{scope}:{ident}".encode()).hexdigest()
     now = time.time()
@@ -47,7 +51,7 @@ def client_ip(request):
     X-Forwarded-For is only trusted for as many hops as we run ourselves; its
     first entries are whatever the client chose to send.
     """
-    hops = getattr(settings, "DOGFOOD_PROXY_COUNT", 0)
+    hops = settings.DOGFOOD_PROXY_COUNT
     if hops:
         chain = [p.strip() for p in request.META.get("HTTP_X_FORWARDED_FOR", "").split(",") if p.strip()]
         if len(chain) >= hops:

@@ -200,7 +200,7 @@ def set_demo_passwords(event):
     if not (admin.is_superuser and admin.is_active):
         admin.is_superuser = admin.is_staff = admin.is_active = True
         admin.save(update_fields=["is_superuser", "is_staff", "is_active"])
-    people = [admin] + [resolve_seeded_user(event, who) for _, who in SEEDED_SESSIONS.values()]
+    people = [admin] + [user for _, user in seeded_people(event).values()]
     for user in people:
         if not user.has_usable_password():
             user.set_password(settings.DOGFOOD_DEMO_PASSWORD)
@@ -210,7 +210,7 @@ def set_demo_passwords(event):
 
 def demo_accounts(event):
     """Everyone demo mode hands a known password or a fixed session to."""
-    people = [resolve_seeded_user(event, who) for _, who in SEEDED_SESSIONS.values()]
+    people = [user for _, user in seeded_people(event).values()]
     admin = User.objects.filter(username=SEEDED_ADMIN_EMAIL).first()
     return people + ([admin] if admin else [])
 
@@ -231,10 +231,21 @@ def revoke_demo_access(event):
 
 
 def resolve_seeded_user(event, who):
-    """who is an email, or a judge's fixture id."""
+    """who is an email, or a judge's fixture id. None when this event's file doesn't have them.
+
+    Demo mode is built around the organisers' fixture; any other event file
+    imports fine and simply gets no demo logins for the people it lacks.
+    """
     if "@" in who:
-        return User.objects.get(username=who.lower())
-    return EventRole.objects.get(event=event, role=EventRole.Role.JUDGE, external_id=who).user
+        return User.objects.filter(username=who.lower()).first()
+    role = EventRole.objects.filter(event=event, role=EventRole.Role.JUDGE, external_id=who).select_related("user").first()
+    return role.user if role else None
+
+
+def seeded_people(event):
+    """The people behind SEEDED_SESSIONS that exist for this event, as {session key: (label, user)}."""
+    people = {key: (label, resolve_seeded_user(event, who)) for key, (label, who) in SEEDED_SESSIONS.items()}
+    return {key: (label, user) for key, (label, user) in people.items() if user is not None}
 
 
 @transaction.atomic
@@ -242,8 +253,7 @@ def write_seeded_sessions(event):
     """Upsert the fixed session rows. Returns [(label, cookie header)]."""
     expires = timezone.now() + timedelta(days=365)
     printed = []
-    for key, (label, who) in SEEDED_SESSIONS.items():
-        user = resolve_seeded_user(event, who)
+    for key, (label, user) in seeded_people(event).items():
         data = {
             SESSION_KEY: str(user.pk),
             BACKEND_SESSION_KEY: "django.contrib.auth.backends.ModelBackend",

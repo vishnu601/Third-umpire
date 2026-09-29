@@ -22,7 +22,8 @@ from django.utils import timezone
 from django.utils.text import slugify
 from PIL import Image
 
-from . import scoring
+from . import ratelimit, scoring
+from .errors import Refused  # noqa: F401 (re-exported: pages, api and tests import it from here)
 from .models import (
     Assignment,
     AuditLog,
@@ -47,12 +48,6 @@ from .models import (
 )
 
 
-class Refused(Exception):
-    def __init__(self, status, code, message=""):
-        super().__init__(message or code)
-        self.status = status
-        self.code = code
-        self.message = message or code.replace("_", " ")
 
 
 # --- roles --------------------------------------------------------------------
@@ -1168,7 +1163,7 @@ def vote_conflict(user, event):
     return None
 
 
-def _open_voting_window(event):
+def ensure_voting_open(event):
     phase = event.voting_phase()
     if phase == "open":
         return
@@ -1181,10 +1176,8 @@ def _open_voting_window(event):
 
 
 def _vote_limits(user, ip):
-    from . import ratelimit  # deferred: ratelimit imports Refused from this module
-
-    ratelimit.hit("vote-user", user.pk, 30, 600)
-    ratelimit.hit("vote-ip", ip, 120, 600)
+    ratelimit.hit("vote-user", user.pk, ratelimit.VOTE_PER_USER, ratelimit.VOTE_WINDOW)
+    ratelimit.hit("vote-ip", ip, ratelimit.VOTE_PER_IP, ratelimit.VOTE_WINDOW)
 
 
 def cast_vote(project, user, ip=""):
@@ -1192,7 +1185,7 @@ def cast_vote(project, user, ip=""):
     require_login(user)
     _vote_limits(user, ip)
     event = project.event
-    _open_voting_window(event)
+    ensure_voting_open(event)
     if project.status != Project.Status.SUBMITTED:
         raise Refused(404, "not_found", "no such project")
     if project.withdrawn_at:
@@ -1221,7 +1214,7 @@ def cast_vote(project, user, ip=""):
 def retract_vote(project, user, ip=""):
     require_login(user)
     _vote_limits(user, ip)
-    _open_voting_window(project.event)
+    ensure_voting_open(project.event)
     vote = Vote.objects.filter(voter=user, project=project).first()
     if vote is None:
         raise Refused(404, "no_such_vote", "you have not voted for this project")
@@ -1328,9 +1321,8 @@ MAX_COMMENT = 2000
 
 def post_comment(project, user, body):
     require_login(user)
-    from . import ratelimit  # deferred: ratelimit imports Refused from this module
 
-    ratelimit.hit("comment-user", user.pk, 10, 600)
+    ratelimit.hit("comment-user", user.pk, ratelimit.COMMENT_PER_USER, ratelimit.COMMENT_WINDOW)
     if project.status != Project.Status.SUBMITTED:
         raise Refused(404, "not_found", "no such project")
     if project.withdrawn_at:

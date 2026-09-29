@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client
 
 from portal import services
-from portal.models import Assignment, EventRole, Project, TeamMembership
+from portal.models import Assignment, EventRole, TeamMembership
 
 from .conftest import ORGANIZER, client_as
 from .test_t2_pages import world  # noqa: F401 (fixture)

@@ -10,7 +10,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.utils import timezone
 
-from portal import services
+from portal import ratelimit, services
 from portal.models import AuditLog, Comment, Event, Project, Vote
 from portal.services import Refused
 
@@ -207,7 +207,7 @@ def test_vote_rate_limits(world, voter):
     set_window(world["event"])
     p = world["projects"][0]
     services.cast_vote(p, voter)
-    for _ in range(29):
+    for _ in range(ratelimit.VOTE_PER_USER - 1):
         assert codes(services.cast_vote, p, voter)[1] == "already_voted"
     assert codes(services.cast_vote, p, voter) == (429, "rate_limited")
 
@@ -215,10 +215,10 @@ def test_vote_rate_limits(world, voter):
 def test_vote_rate_limit_per_address(world):
     set_window(world["event"])
     p = world["projects"][0]
-    users = [make_user(f"ip{i}@example.org") for i in range(121)]
-    for u in users[:120]:
+    users = [make_user(f"ip{i}@example.org") for i in range(ratelimit.VOTE_PER_IP + 1)]
+    for u in users[:ratelimit.VOTE_PER_IP]:
         codes(services.retract_vote, p, u, ip="198.51.100.7")  # 404 no_such_vote, but each call is counted
-    assert codes(services.retract_vote, p, users[120], ip="198.51.100.7") == (429, "rate_limited")
+    assert codes(services.retract_vote, p, users[ratelimit.VOTE_PER_IP], ip="198.51.100.7") == (429, "rate_limited")
 
 
 def test_vote_audit_trail(world, voter):
@@ -418,7 +418,7 @@ def test_duplicate_comment_is_refused(world, voter):
 
 def test_comment_rate_limit(world, voter):
     p = world["projects"][0]
-    for i in range(10):
+    for i in range(ratelimit.COMMENT_PER_USER):
         services.post_comment(p, voter, f"comment {i}")
     assert codes(services.post_comment, p, voter, "one more") == (429, "rate_limited")
 
