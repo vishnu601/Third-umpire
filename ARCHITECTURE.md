@@ -92,9 +92,9 @@ cookies are also `SameSite=Lax` and `HttpOnly`.
 ## Results engine and caching
 
 `services.event_results(event)` builds the review points (weighted per the current rubric) and calls
-`scoring.analyse`. That's a two-way least-squares fit plus a 400-draw residual bootstrap, about 2.5 s for the
+`scoring.analyse`. That's a two-way least-squares fit plus a 400-draw residual bootstrap, about 0.4 s for the
 fixture. The result is cached in a file-based cache shared by all gunicorn workers. The key is a fingerprint of the
-data: review count, latest review update, rubric weights and prize slots. A new score or weight change is a new key,
+data: review count, latest review update, rubric weights, prize slots and which projects are withdrawn. A new score or weight change is a new key,
 so there's no invalidation code to get wrong. The seed step warms the cache, so the first results page is instant.
 
 ## Demo mode
@@ -102,24 +102,33 @@ so there's no invalidation code to get wrong. The seed step warms the cache, so 
 `DOGFOOD_SEED_SESSIONS=1` (set in `docker-compose.yml`):
 - writes the four fixed session rows the checker uses;
 - gives the seeded accounts `DOGFOOD_DEMO_PASSWORD`;
-- shows a role switcher (`POST /demo/login`, which is a 404 when demo mode is off).
+- makes `admin@example.org` an active superuser;
+- shows a role switcher (`POST /demo/login`, which is a 404 when demo mode is off);
+- lets the app boot on a built-in, public `SECRET_KEY`. With demo mode and `DEBUG` both off, settings refuse to load
+  without `DJANGO_SECRET_KEY`.
 
-It is off by default in `settings.py`; a real deployment turns it off in compose.
+It is off by default in `settings.py`; a real deployment turns it off in compose. The next boot with it off
+**revokes** the demo (`seed.revoke_demo_access`): the fixed sessions are deleted, the demo password is made
+unusable wherever it is still set, and the admin account is disabled. Passwords people chose are kept.
 
 ## Seeding
 
-`manage.py seed` runs on every boot. It upserts the fixture by its string ids (`external_id` on every imported
-table), so a restart changes nothing. Every imported score also creates the matching assignment, so the dashboard
+`manage.py seed` runs on every boot and matches the fixture by its string ids (`external_id` on every imported
+table), so it never duplicates a row. Reference rows (tracks, judges' roles, teams, memberships) are upserted.
+Everything people edit in the app (the event's dates and settings, projects, reviews and their scores) is
+**create-only**: imported once, then never overwritten, so a restart can't revert an organizer's or a judge's
+change. Every imported score also creates the matching assignment, so the dashboard
 reflects the fixture's real coverage, unfinished batches included.
 
 ## Tests
 
-`tests/` has 119 pytest tests:
+`tests/` has 157 pytest tests:
 - the checker's 7 behaviours;
 - every role and deadline rule through the real pages, with a wrong-role assertion per restricted view;
 - known-answer tests for the maths;
 - the simulation;
-- idempotent seeding.
+- idempotent, create-only seeding and demo revocation;
+- the security fixes from review (`tests/test_hardening.py`) and the organizer tools (`tests/test_product.py`).
 
 `make verify` runs the checker and 12 curl probes against a clean container, plus the test suite.
 

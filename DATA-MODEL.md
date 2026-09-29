@@ -1,6 +1,6 @@
 # Data model
 
-Source of truth: [`src/portal/models.py`](src/portal/models.py) and its single migration. Everything below is
+Source of truth: [`src/portal/models.py`](src/portal/models.py) and its migrations. Everything below is
 enforced by the database (constraints), not only by the code.
 
 ## Entities
@@ -29,7 +29,7 @@ Event ─┬─ Track ─────────────┐
 | **EventRole** | user × event × role; judges also carry their fixture id (`jdg_01`) and the tracks they cover | `(user, event, role)` unique; `(event, external_id)` unique when set |
 | **Team** | name, `invite_token` (random, rotatable) | `(event, external_id)` unique; token unique |
 | **TeamMembership** | user on team; `event` copied from the team | **`(event, user)` unique: one team per person per event**, enforced by the database, not by a check that can race |
-| **Project** | the stable submission fields: title, tagline, description, thumbnail, repo/demo-video/live URLs, tags, track; `status` draft or submitted; `submitted_at` | `(event, external_id)` unique; **a submitted project must have `submitted_at`** |
+| **Project** | the stable submission fields: title, tagline, description, thumbnail, repo/demo-video/live URLs, tags, track; `status` draft or submitted; `submitted_at`; `withdrawn_at` and `withdrawn_reason` when an organizer takes it out of judging | `(event, external_id)` unique; **a submitted project must have `submitted_at`** |
 | **Tag** | tech tags shared across events, lower-case slugs | name unique |
 | **ProjectImage** | gallery images, ordered | max 6 per project (application rule) |
 | **EventQuestion** / **ProjectAnswer** | organizer-defined questions and each project's answers | one answer per project per question |
@@ -50,20 +50,25 @@ Event ─┬─ Track ─────────────┐
   reviews on demand (then cached by a fingerprint of the data), so they can't drift from the scores they come from.
 - **`external_id` everywhere an import can land.** It is the fixture's string id (`prj_01`) for imported rows and a
   random id (`prj_3fa9c2d1`) for rows made in the app. Every URL uses it (database ids appear only in organizer-only form
-  fields), and the import upserts on it.
+  fields), and the import matches on it.
 - **The duplicate `event` on TeamMembership** exists so the database, not application code, guarantees one team per
   person per event.
-- **Uploads use random file names** (`thumbnails/<uuid>.png`), so they can't be enumerated and never collide.
+- **Uploads use random file names** (`thumbnails/<uuid>.png`), so they can't be enumerated and never collide. The
+  extension is the format Pillow actually decoded, never the uploader's, and replaced images are deleted.
+- **Withdrawing is a flag, not a delete.** A withdrawn project (a duplicate, a rules breach) leaves results, the
+  gallery and judging queues, but it and its reviews stay for the audit trail and the exports.
 
 ## Import: fixtures.json → tables
 
-`python manage.py seed [--fixtures path]` runs on every boot and is idempotent (every write is an upsert on
-`external_id`). It accepts any file in the fixture's shape, so it is also the way to import an event from another
+`python manage.py seed [--fixtures path]` runs on every boot and is idempotent: every write is matched on
+`external_id`, so rows are never duplicated. Tracks, judge roles, teams and memberships are upserted. The event,
+projects, reviews and criterion scores are **create-only**, so live edits (new deadlines, a judge's changed score)
+survive a restart. It accepts any file in the fixture's shape, so it is also the way to import an event from another
 tool.
 
 | fixtures.json | becomes |
 |---|---|
-| `event` | `Event` (its own `submissions_close`, so the fixture event is closed) |
+| `event` | `Event` (its own `submissions_close`, so the fixture event is closed), created once |
 | `tracks[]` | `Track` |
 | `judges[]` | `User` (by email) + `EventRole(judge, external_id=id)` + covered tracks |
 | `teams[].members[]` | `User` (by email) + `Team` + `TeamMembership` + `EventRole(participant)` |
@@ -71,7 +76,9 @@ tool.
 | `scores[]` | `Assignment(source=import)` + `Review` + one `CriterionScore` per criterion |
 | criteria keys seen in scores | `Criterion` with weight 1 and default anchors. Existing weights are left alone, so an organizer's changes survive reboots |
 
-Imported users get unusable passwords. In demo mode, the seeded accounts also get the demo password.
+Imported users get unusable passwords. In demo mode, the seeded accounts also get the demo password. With demo mode
+off, the seed revokes it: fixed sessions deleted, the demo password made unusable where still set, the demo admin
+disabled.
 
 ## Export: tables → files
 
@@ -81,7 +88,7 @@ All organizer-only (401 anonymous, 403 anyone else), CSV with formula-injection 
 | Stage | URL | One row per |
 |---|---|---|
 | Registration | `/api/events/<id>/teams.csv` | team member |
-| Submission | `/api/events/<id>/submissions.csv` | project, drafts included, every field + each custom answer |
+| Submission | `/api/events/<id>/submissions.csv` | project, drafts and withdrawn included, every field + each custom answer |
 | Assignment | `/api/events/<id>/assignments.csv` | assignment, with source and whether it's reviewed |
 | Scoring | `/api/export.csv?event=<id>` | review: every criterion, weighted score, leniency-adjusted score, comment |
 | Results | `/api/events/<id>/results.csv` | project: rank, score, raw mean, rank band, P(first), P(prize), flags |

@@ -68,7 +68,7 @@ it). The checker's cookies (`Cookie: session=org_7f2a` and so on) are printed at
 
 ## What it does, and where to check it
 
-Every claim below has a test you can run (`.venv/bin/pytest`, 119 tests) and, for T1/T2 checker items, a `run.py`
+Every claim below has a test you can run (`.venv/bin/pytest`, 157 tests) and, for T1/T2 checker items, a `run.py`
 line.
 
 | Tier item | Where | Evidence |
@@ -95,6 +95,12 @@ line.
 - A readable **audit log** covers every change, including refused late submissions and review edits with before
   and after values.
 - A judge is **never assigned their own team's project**.
+- Organizers can **withdraw a project from judging** (the duplicate "Dry Harbour", say) straight from the
+  integrity report. It is audited and reversible, and the project and its reviews stay in the exports.
+- Organizers **read every judge's scores and comment** on a project from its results row. Judges only ever see
+  their own.
+- Organizers **add co-organizers by email** on *Manage*. *Manage* also **warns before publishing** while reviews are
+  still pending, and scores are frozen while results are public.
 
 ## Docs
 
@@ -108,12 +114,22 @@ Demo mode is for evaluation. For an actual event:
 
 ```yaml
 # docker-compose.yml, environment:
-DOGFOOD_SEED_SESSIONS: "0"          # no fixed sessions, no demo password, no role switcher
-DJANGO_SECRET_KEY: "<50+ random characters>"
+DOGFOOD_SEED_SESSIONS: "0"          # no fixed sessions, no demo password, no admin, no role switcher
+DJANGO_SECRET_KEY: "<50+ random characters>"   # required: the app refuses to start without it
 DJANGO_ALLOWED_HOSTS: "hack.example.org"
+DJANGO_CSRF_TRUSTED_ORIGINS: "https://hack.example.org"
+DJANGO_HTTPS: "1"                   # secure cookies, trust X-Forwarded-Proto, HSTS
 ```
 
-Put it behind a TLS-terminating reverse proxy. Create the first admin with
+Turning demo mode off on an existing volume **revokes the demo on the next boot**:
+- the four fixed sessions are deleted;
+- the demo password stops working wherever it is still set (passwords people chose are kept);
+- `admin@example.org` is disabled.
+
+The seed never overwrites live data: events, projects and reviews from the fixture are created once and then left
+alone, so an organizer's edits survive restarts.
+
+Compose publishes the port on `127.0.0.1` only. Put it behind a TLS-terminating reverse proxy on the same host. Create the first admin with
 `docker compose exec portal python manage.py createsuperuser` (use your email, in lower case, as the username: logins are by email); give organizers the right to host events by marking
 them staff (`is_staff`). Everything lives in the `portal-data` volume (`/data`: the SQLite database, uploads and the
 results cache). **Backup** is copying that volume, or `docker compose cp portal:/data/db.sqlite3 ./backup.sqlite3` (restore by copying it back while the container is stopped).
@@ -124,7 +140,9 @@ results cache). **Backup** is copying that volume, or `docker compose cp portal:
 | `DOGFOOD_DEMO_PASSWORD` | `dogfood-demo` | password given to seeded accounts in demo mode |
 | `DOGFOOD_FIXTURES` | `/app/fixtures.json` | fixture file imported on every boot (idempotent) |
 | `DOGFOOD_BOOTSTRAP_DRAWS` | `400` | resamples behind rank bands |
-| `DJANGO_SECRET_KEY` | a dev-only value | **set this in production** |
+| `DJANGO_SECRET_KEY` | none (a public dev key in demo mode or `DJANGO_DEBUG=1`) | **required in production** |
+| `DJANGO_HTTPS` | `0` | behind TLS: secure cookies, proxy SSL header, HSTS |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | empty | comma-separated origins, e.g. `https://hack.example.org` |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` | comma-separated |
 | `DJANGO_DB_PATH`, `DJANGO_MEDIA_ROOT`, `DJANGO_CACHE_DIR` | under `/data` in Docker | storage locations |
 | `PORT`, `WEB_WORKERS` | `8080`, `2` | gunicorn |
@@ -133,7 +151,7 @@ results cache). **Backup** is copying that volume, or `docker compose cp portal:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/pytest                                    # 119 tests, about a minute
+.venv/bin/pytest                                    # 157 tests, about a minute
 cd src && DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py migrate && \
   DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py seed && \
   DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py runserver 8080
@@ -149,7 +167,9 @@ cd src && DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py migrate && \
 - **SQLite** handles one writer at a time. That is fine for hundreds of participants and dozens of judges, not for a
   10,000-person public vote.
 - **Uploads are served by Django itself.** That's simple and fine at hackathon scale; a large event should serve
-  `/media/` from the reverse proxy.
+  `/media/` from the reverse proxy. Each upload is decoded with Pillow and stored under the extension of the format
+  it really is. It is then served with `Content-Security-Policy: default-src 'none'; sandbox` and `nosniff`, so a
+  crafted file can't run script on the portal's origin. A whole form is capped at 15 MB before it is parsed.
 - **The 80% rank bands run slightly narrow** (73% coverage in simulation); see JUDGING.md section 6.
 - **Not built:** T3 (voting, comments), T4 (REST API for every action, webhooks, certificates, signed judge records,
   widget), a JSON export/import of a whole event (CSV exports and the SQLite file are the way out today), OpenAPI,
