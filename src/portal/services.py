@@ -410,6 +410,8 @@ def create_team(event, user, name):
         raise Refused(400, "invalid_name", "team name is required, at most 200 characters")
     if is_judge(user, event):
         raise Refused(403, "judges_cannot_compete", "judges of this event cannot join a team in it")
+    if is_organizer(user, event):
+        raise Refused(403, "organizers_cannot_compete", "organizers of this event cannot join a team in it")
     if team_of(user, event):
         raise Refused(409, "already_on_a_team", "you are already on a team in this event")
     try:
@@ -429,6 +431,8 @@ def join_team(team, user):
     ensure_submissions_open(event, user, "team.join")
     if is_judge(user, event):
         raise Refused(403, "judges_cannot_compete", "judges of this event cannot join a team in it")
+    if is_organizer(user, event):
+        raise Refused(403, "organizers_cannot_compete", "organizers of this event cannot join a team in it")
     current = team_of(user, event)
     if current == team:
         return team
