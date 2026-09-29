@@ -48,4 +48,5 @@ urlpatterns = [
     path("api/events/<str:event_id>/submissions.csv", views.submissions_csv, name="api-submissions-csv"),
     path("api/events/<str:event_id>/assignments.csv", views.assignments_csv, name="api-assignments-csv"),
     path("api/events/<str:event_id>/audit.csv", views.audit_csv, name="api-audit-csv"),
+    path("api/events/<str:event_id>/export.json", views.export_json, name="api-export-json"),
 ]

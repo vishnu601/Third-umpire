@@ -94,9 +94,46 @@ All organizer-only (401 anonymous, 403 anyone else), CSV with formula-injection 
 | Results | `/api/events/<id>/results.csv` | project: rank, score, raw mean, rank band, P(first), P(prize), flags |
 | Audit | `/api/events/<id>/audit.csv` | audit entry, oldest first |
 
-**Whole-database backup and migration out:** the entire state is one SQLite file plus the uploads folder in the
-`portal-data` volume. `docker compose cp portal:/data/db.sqlite3 .` gives a standard SQLite database that any tool
-can read. A JSON export in the fixture's own shape (a full round trip) is on the roadmap, not built.
+**Whole-database backup:** the entire state is one SQLite file plus the uploads folder in the `portal-data` volume.
+`docker compose cp portal:/data/db.sqlite3 .` gives a standard SQLite database that any tool can read. That file and
+the media folder are the only complete backup; the JSON export below is a migration path, not a backup.
+
+## Export: the whole event as JSON
+
+`python manage.py export_event <event_id> [-o file]` (stdout by default) and `GET /api/events/<id>/export.json`
+(organizers only, 401/403 otherwise, sent as an attachment) write one event in **the shape of `fixtures.json`**: the
+top-level keys `event`, `tracks`, `judges`, `teams`, `projects`, `scores`, the same field names, string ids that are
+our `external_id`s (random ones like `prj_3fa9c2d1` for rows made in the app), timestamps in ISO 8601 UTC with a `Z`.
+It is the inverse of the import: `python manage.py seed --fixtures event.json` loads it into another portal. Exporting
+the organisers' fixture event gives back the same data it came from (a test asserts it), and exporting an app-made
+event, wiping it and importing the file gives an event that exports identically (also tested).
+
+**Carried.** Event name, id, deadline; tracks; judges with their covered tracks; teams with member emails; every
+project, drafts and withdrawn ones included (`summary` is our `tagline`); every review with its criterion values and
+comment. A review implies its assignment on import.
+
+**Carried as optional keys**, written only when they hold something (so a fixture-born event exports with no extras),
+and read back by the import when present; a portal that ignores unknown keys just drops them:
+
+| Where | Keys |
+|---|---|
+| `event` | `description`, `submissions_open`, `judging_close`, `results_published_at`, `reviews_per_project` (when not 3) |
+| top level | `criteria`: the rubric (`key`, `name`, `description`, `anchor_low/mid/high`, `weight`, `position`), only when it differs from what the import derives from the scores (equal weights, default anchors), so re-weighting survives |
+| `projects[]` | `description`, `demo_video_url`, `live_url`, `tags`, `withdrawn_at`, `withdrawn_reason` |
+
+**Not carried.** Uploaded files (thumbnails and gallery images: only the SQLite file plus the media folder has them);
+custom questions and each project's answers; prizes; assignments nobody has reviewed yet, and which of auto, manual or
+tiebreak made one (imported ones are `source=import`); organizers and co-organizers, judge invites and team invite
+tokens; the audit log (it has its own CSV); accounts, passwords, sessions, login history and any IP data (nothing of
+the kind is stored per person, and none is exported); scores are not derived values, but ranks, bias-corrected scores
+and rank bands are: they are recomputed on the new portal from the reviews. A review whose judge no longer holds the
+judge role in the event has no judge id to attach to and is left out. People arrive on the new portal as users with
+unusable passwords, matched by email, so they need a sign-up or an admin password reset.
+
+**Import semantics.** The import is create-only for the event, projects, reviews and rubric (as above), so importing
+into a portal that already has an event with the same id leaves its event, projects, reviews and rubric alone (tracks,
+judges and teams are upserted from the file). To bring an event in beside an existing one, change `event.id` in the
+file first.
 
 ## Migrations
 

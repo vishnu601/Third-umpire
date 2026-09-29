@@ -27,6 +27,7 @@ from .models import (
     EventRole,
     Project,
     Review,
+    Tag,
     Team,
     TeamMembership,
     Track,
@@ -54,13 +55,50 @@ def user_for_email(email, name=""):
     return user
 
 
+# What an optional `criteria` entry may set on a Criterion (export_event writes the same names).
+CRITERION_FIELDS = ("name", "description", "anchor_low", "anchor_mid", "anchor_high", "weight", "position")
+
+
+def default_criterion(key, position):
+    """The rubric line the import makes for a criterion key seen in a score: equal weight, default anchors."""
+    anchors = {k: (low, mid, high) for k, _, low, mid, high in DEFAULT_CRITERIA}
+    low, mid, high = anchors.get(key, ("", "", ""))
+    return {
+        "name": key.replace("_", " ").capitalize(),
+        "description": "",
+        "position": position,
+        "anchor_low": low,
+        "anchor_mid": mid,
+        "anchor_high": high,
+        "weight": 1,
+    }
+
+
+def _when(value):
+    return parse_datetime(value) if value else None
+
+
 @transaction.atomic
 def import_fixture(data):
-    """Upsert every record in a fixtures.json dict. Returns the Event."""
+    """Upsert every record in a fixtures.json dict. Returns the Event.
+
+    Beyond the organisers' shape it reads a few optional keys, all written by `event_export.export_event` only
+    when they carry something: event `description`, `submissions_open`, `judging_close`, `results_published_at`,
+    `reviews_per_project`; a top-level `criteria` list; per project `description`, `demo_video_url`, `live_url`,
+    `tags`, `withdrawn_at`, `withdrawn_reason`. Any other key is ignored.
+    """
     ev = data["event"]
     event, _ = Event.objects.get_or_create(
         external_id=ev["id"],
-        defaults={"name": ev["name"], "submissions_close": parse_datetime(ev["submissions_close"])},
+        defaults={
+            "name": ev["name"],
+            "submissions_close": parse_datetime(ev["submissions_close"]),
+            "description": ev.get("description", ""),
+            "submissions_open": _when(ev.get("submissions_open")),
+            "judging_close": _when(ev.get("judging_close")),
+            "results_published_at": _when(ev.get("results_published_at")),
+            "reviews_per_project": ev.get("reviews_per_project", 3),
+        },
     )
 
     tracks = {}
@@ -72,20 +110,16 @@ def import_fixture(data):
     # Rubric: every criterion key that appears in any score, equal weights.
     # Existing weights are left alone so an organizer's edits survive reboots.
     keys = sorted({k for s in data.get("scores", []) for k in s["criteria"]})
-    anchors = {key: (low, mid, high) for key, _, low, mid, high in DEFAULT_CRITERIA}
     criteria = {}
+    # An edited rubric (weights, names, anchors, lines no score uses yet) comes as `criteria`; create-only too,
+    # and first, so its lines win over the defaults made for the same keys below.
+    for c in data.get("criteria", []):
+        criteria[c["key"]], _ = Criterion.objects.get_or_create(
+            event=event, key=c["key"], defaults={f: c[f] for f in CRITERION_FIELDS if f in c}
+        )
     for position, key in enumerate(keys):
-        low, mid, high = anchors.get(key, ("", "", ""))
         criteria[key], _ = Criterion.objects.get_or_create(
-            event=event,
-            key=key,
-            defaults={
-                "name": key.replace("_", " ").capitalize(),
-                "position": position,
-                "anchor_low": low,
-                "anchor_mid": mid,
-                "anchor_high": high,
-            },
+            event=event, key=key, defaults=default_criterion(key, position)
         )
 
     judges = {}
@@ -110,7 +144,7 @@ def import_fixture(data):
     projects = {}
     for p in data.get("projects", []):
         submitted_at = parse_datetime(p["submitted_at"]) if p.get("submitted_at") else None
-        projects[p["id"]], _ = Project.objects.get_or_create(
+        projects[p["id"]], created = Project.objects.get_or_create(
             event=event,
             external_id=p["id"],
             defaults={
@@ -121,8 +155,15 @@ def import_fixture(data):
                 "repo_url": p.get("repo_url", ""),
                 "status": Project.Status.SUBMITTED if submitted_at else Project.Status.DRAFT,
                 "submitted_at": submitted_at,
+                "description": p.get("description", ""),
+                "demo_video_url": p.get("demo_video_url", ""),
+                "live_url": p.get("live_url", ""),
+                "withdrawn_at": _when(p.get("withdrawn_at")),
+                "withdrawn_reason": p.get("withdrawn_reason", ""),
             },
         )
+        if created and p.get("tags"):
+            projects[p["id"]].tags.set([Tag.objects.get_or_create(name=name)[0] for name in p["tags"]])
 
     for s in data.get("scores", []):
         # A score implies the judge was assigned the project.
