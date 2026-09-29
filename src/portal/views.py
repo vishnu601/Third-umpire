@@ -7,6 +7,7 @@ from django.shortcuts import render
 
 from . import scoring, services
 from .api import ApiError, api_view, json_body, require_login
+from .event_export import export_event
 from .models import Assignment, AuditLog, CriterionScore, Event, EventRole, Project, Review, Tag, TeamMembership, Track
 
 # --- pages -------------------------------------------------------------------
@@ -309,6 +310,18 @@ def assignments_csv(request, event_id):
         ["project_id", "project_title", "judge_id", "judge_email", "source", "assigned_at", "reviewed"],
         rows,
     )
+
+
+@api_view(["GET"])
+def export_json(request, event_id):
+    """The whole event in fixtures.json's shape, importable with `manage.py seed --fixtures`. Organizers only."""
+    event = organizer_event(request, event_id)
+    response = HttpResponse(
+        json.dumps(export_event(event), indent=2, ensure_ascii=False) + "\n",
+        content_type="application/json; charset=utf-8",
+    )
+    response["Content-Disposition"] = f'attachment; filename="event-{event.external_id}.json"'
+    return response
 
 
 @api_view(["GET"])

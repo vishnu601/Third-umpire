@@ -133,6 +133,8 @@ Compose publishes the port on `127.0.0.1` only. Put it behind a TLS-terminating 
 `docker compose exec portal python manage.py createsuperuser` (use your email, in lower case, as the username: logins are by email); give organizers the right to host events by marking
 them staff (`is_staff`). Everything lives in the `portal-data` volume (`/data`: the SQLite database, uploads and the
 results cache). **Backup** is copying that volume, or `docker compose cp portal:/data/db.sqlite3 ./backup.sqlite3` (restore by copying it back while the container is stopped).
+**Migration out:** `docker compose exec portal python manage.py export_event <event_id> -o /data/event.json` (or the
+"Whole event (JSON)" link on the manage page) writes an event in the fixture's own shape; `manage.py seed --fixtures event.json` loads it into another portal.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -172,8 +174,10 @@ cd src && DOGFOOD_SEED_SESSIONS=1 ../.venv/bin/python manage.py migrate && \
   crafted file can't run script on the portal's origin. A whole form is capped at 15 MB before it is parsed.
 - **The 80% rank bands run slightly narrow** (73% coverage in simulation); see JUDGING.md section 6.
 - **Not built:** T3 (voting, comments), T4 (REST API for every action, webhooks, certificates, signed judge records,
-  widget), a JSON export/import of a whole event (CSV exports and the SQLite file are the way out today), OpenAPI,
-  and pairwise judging.
+  widget), OpenAPI, and pairwise judging.
+- **The JSON event export is a migration path, not a backup.** `export_event` carries teams, projects, judges, reviews
+  and the rubric weights; it leaves out uploaded images, custom questions and answers, prizes, unreviewed assignments,
+  organizers and the audit log (see DATA-MODEL.md). The SQLite file plus the media volume is the full backup.
 - A project reviewed only by flat judges falls back to its raw average (flagged low confidence).
 
 ## License
