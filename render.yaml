@@ -1,0 +1,27 @@
+# One-click public demo on Render (free plan): https://render.com/deploy?repo=https://github.com/vishnu601/Third-umpire
+# It runs in demo mode, so anyone can switch roles, including organizer and admin. That is the point of a sandbox:
+# the free plan's disk is wiped whenever the instance sleeps or restarts, and each boot re-seeds a clean fixture event.
+# Never use this blueprint for a real event (see README, "Running it for real").
+services:
+  - type: web
+    name: third-umpire
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: DOGFOOD_SEED_SESSIONS
+        value: "1"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com"
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: "https://*.onrender.com"
+      - key: DJANGO_HTTPS
+        value: "1"
+      - key: DJANGO_PROXY_COUNT
+        value: "1"
+      - key: PORT
+        value: "8080"
+      - key: WEB_WORKERS
+        value: "2"

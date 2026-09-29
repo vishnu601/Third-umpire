@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     DJANGO_DB_PATH=/data/db.sqlite3 \
     DJANGO_MEDIA_ROOT=/data/media \
+    DJANGO_CACHE_DIR=/data/cache \
     DOGFOOD_FIXTURES=/app/fixtures.json
 
 WORKDIR /app
