@@ -88,6 +88,12 @@ DOGFOOD_FIXTURES = os.environ.get("DOGFOOD_FIXTURES", str(REPO_DIR / "fixtures.j
 # accounts DOGFOOD_DEMO_PASSWORD. Demo only.
 DOGFOOD_SEED_SESSIONS = env_bool("DOGFOOD_SEED_SESSIONS", False)
 DOGFOOD_DEMO_PASSWORD = os.environ.get("DOGFOOD_DEMO_PASSWORD", "dogfood-demo")
+# Rate limits on login, signup and (T3) votes and comments; see portal/ratelimit.py.
+DOGFOOD_RATE_LIMITS = env_bool("DOGFOOD_RATE_LIMITS", True)
+DOGFOOD_RATE_LIMITS_SIGNUP_PER_IP = int(os.environ.get("DOGFOOD_RATE_LIMITS_SIGNUP_PER_IP", "30"))
+# How many reverse proxies we run in front of gunicorn. With 1, the client address
+# is the last X-Forwarded-For entry; with 0 (default) X-Forwarded-For is ignored.
+DOGFOOD_PROXY_COUNT = int(os.environ.get("DJANGO_PROXY_COUNT", "0"))
 # Bootstrap resamples behind the results page's rank bands and P(win).
 DOGFOOD_BOOTSTRAP_DRAWS = int(os.environ.get("DOGFOOD_BOOTSTRAP_DRAWS", "400"))
 

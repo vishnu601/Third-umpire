@@ -3,7 +3,6 @@ from django.urls import path, re_path
 from django.views.generic import RedirectView
 
 from portal import pages, views
-from portal.forms import EmailAuthenticationForm
 
 urlpatterns = [
     path("", RedirectView.as_view(url="/projects", permanent=False)),
@@ -11,7 +10,7 @@ urlpatterns = [
     re_path(r"^media/(?P<path>.+)$", pages.media, name="media"),
     path("demo/login", pages.demo_login, name="demo-login"),
     # accounts
-    path("login", auth_views.LoginView.as_view(template_name="portal/login.html", authentication_form=EmailAuthenticationForm), name="login"),
+    path("login", pages.login_view, name="login"),
     path("logout", auth_views.LogoutView.as_view(), name="logout"),
     path("signup", pages.signup, name="signup"),
     # public

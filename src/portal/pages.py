@@ -14,7 +14,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.views import redirect_to_login
+from django.contrib.auth.views import LoginView, redirect_to_login
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
@@ -23,7 +23,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 from django.views.static import serve
 
-from . import services
+from . import ratelimit, services
 from .models import (
     Assignment,
     AuditLog,
@@ -38,6 +38,7 @@ from .models import (
     Team,
     Track,
 )
+from .forms import EmailAuthenticationForm
 from .seed import demo_home, demo_user
 from .services import Refused
 
@@ -115,8 +116,25 @@ class SignupForm(forms.Form):
         return data
 
 
+_login = LoginView.as_view(template_name="portal/login.html", authentication_form=EmailAuthenticationForm)
+
+
+@page
+def login_view(request):
+    """Django's login, behind a per-account and a per-address limit on attempts."""
+    if request.method == "POST":
+        ratelimit.hit("login-ip", ratelimit.client_ip(request), ratelimit.LOGIN_PER_IP, ratelimit.LOGIN_WINDOW)
+        account = (request.POST.get("username") or "").strip().lower()
+        ratelimit.hit("login-account", account, ratelimit.LOGIN_PER_ACCOUNT, ratelimit.LOGIN_WINDOW)
+    return _login(request)
+
+
+@page
 def signup(request):
     form = SignupForm(request.POST or None)
+    if request.method == "POST":
+        ratelimit.hit("signup-ip", ratelimit.client_ip(request), settings.DOGFOOD_RATE_LIMITS_SIGNUP_PER_IP,
+                      ratelimit.SIGNUP_WINDOW)
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
         user = User.objects.create_user(
