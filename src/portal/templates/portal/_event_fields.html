@@ -1,0 +1,8 @@
+<div class="field"><label for="name">Name</label><input id="name" type="text" name="name" required maxlength="200" value="{{ event.name|default:'' }}"></div>
+<div class="field"><label for="description">Description</label><textarea id="description" name="description">{{ event.description|default:'' }}</textarea></div>
+<div class="row">
+  <div class="field"><label for="submissions_open">Submissions open (UTC)</label><input id="submissions_open" type="datetime-local" name="submissions_open" value="{{ event.submissions_open|date:'Y-m-d\TH:i' }}"><div class="hint">Blank means open now.</div></div>
+  <div class="field"><label for="submissions_close">Submissions close (UTC)</label><input id="submissions_close" type="datetime-local" name="submissions_close" required value="{{ event.submissions_close|date:'Y-m-d\TH:i' }}"></div>
+  <div class="field"><label for="judging_close">Judging closes (UTC)</label><input id="judging_close" type="datetime-local" name="judging_close" value="{{ event.judging_close|date:'Y-m-d\TH:i' }}"><div class="hint">Optional.</div></div>
+  <div class="field"><label for="reviews_per_project">Reviews per project</label><input id="reviews_per_project" type="number" min="1" max="10" name="reviews_per_project" value="{{ event.reviews_per_project|default:3 }}"><div class="hint">Assignment target.</div></div>
+</div>

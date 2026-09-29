@@ -1,0 +1,15 @@
+{% extends "portal/base.html" %}
+{% block title %}Events · Dogfood portal{% endblock %}
+{% block content %}
+<div class="row" style="align-items:center"><h1>Events</h1>{% if can_create %}<div class="shrink"><a class="btn" href="/events/new">New event</a></div>{% endif %}</div>
+<div class="table-scroll"><table class="data">
+  <thead><tr><th>Event</th><th>Status</th><th>Submissions close (UTC)</th><th class="num">Projects</th></tr></thead>
+  <tbody>
+  {% for e in events %}
+    <tr><td><a href="/events/{{ e.external_id }}">{{ e.name }}</a></td>
+      <td>{% include "portal/_phase.html" with event=e %}</td>
+      <td>{{ e.submissions_close|date:"Y-m-d H:i" }}</td><td class="num">{{ e.n_projects }}</td></tr>
+  {% empty %}<tr><td colspan="4">No events yet.</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+{% endblock %}

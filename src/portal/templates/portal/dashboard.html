@@ -1,0 +1,24 @@
+{% extends "portal/base.html" %}
+{% block title %}Dashboard · {{ event.name }}{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}/manage">← Manage {{ event.name }}</a></p>
+<div class="row" style="align-items:center">
+  <h1>Live dashboard</h1>
+  <p class="shrink small muted" style="margin:0" aria-live="polite">Updated <span id="updated">now</span></p>
+</div>
+<div id="live" data-src="/events/{{ event.external_id }}/dashboard/live">{% include "portal/_progress.html" %}</div>
+<script>
+  // Refresh the panel every 10 s while the tab is visible. Same-origin fetch of a server-rendered fragment.
+  (function () {
+    var box = document.getElementById("live"), stamp = document.getElementById("updated");
+    function tick() {
+      if (document.hidden) return;
+      fetch(box.dataset.src, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}})
+        .then(function (r) { return r.ok ? r.text() : null; })
+        .then(function (html) { if (html) { box.innerHTML = html; stamp.textContent = new Date().toLocaleTimeString(); } })
+        .catch(function () {});
+    }
+    setInterval(tick, 10000);
+  })();
+</script>
+{% endblock %}

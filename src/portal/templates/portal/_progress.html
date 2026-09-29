@@ -1,0 +1,49 @@
+{% with ig=p.integrity %}
+<div class="kpis">
+  <div class="card kpi"><div class="small muted">Reviews done</div><div class="n">{{ p.done }} / {{ p.assigned }}</div><div class="bar" aria-hidden="true"><span style="width:{{ p.percent }}%"></span></div></div>
+  <div class="card kpi"><div class="small muted">Projects submitted</div><div class="n">{{ p.projects_submitted }}</div><div class="small muted">{{ p.projects_draft }} still draft</div></div>
+  <div class="card kpi"><div class="small muted">Judges with work</div><div class="n">{{ p.judges|length }}</div><div class="small muted">{{ p.idle_judges|length }} idle</div></div>
+  <div class="card kpi"><div class="small muted">Needs attention</div><div class="n">{{ ig.issues }}</div><div class="small muted">see below</div></div>
+</div>
+
+<h2>Integrity report</h2>
+<div class="stack">
+  <div class="card">
+    <h3 style="margin-top:0">Projects below the review target ({{ ig.target }}) {% if ig.under_reviewed %}<span class="badge warn">{{ ig.under_reviewed|length }}</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
+    {% if ig.under_reviewed %}
+      <p class="small muted">Often a judge who never finished their batch. Fewer reviews means a noisier score.</p>
+      <p class="small">{% for u in ig.under_reviewed %}<span class="chip">{{ u.project.external_id }} · {{ u.reviews }} review{{ u.reviews|pluralize }}{% if u.pending %} · {{ u.pending }} pending{% endif %}</span>{% endfor %}</p>
+      <form method="post" action="/events/{{ event.external_id }}/judges">{% csrf_token %}<input type="hidden" name="action" value="assign"><input type="hidden" name="per_project" value="{{ ig.target }}"><button type="submit">Top up to {{ ig.target }} judges each</button></form>
+    {% endif %}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Judges who stopped early {% if ig.light_judges %}<span class="badge warn">{{ ig.light_judges|length }}</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
+    {% for f in ig.light_judges %}<div class="small"><a href="/events/{{ event.external_id }}/judges/{{ f.role.external_id }}">{{ f.role.external_id }}</a>: {{ f.reviews }} review{{ f.reviews|pluralize }}, a third or less of the median ({{ f.median }}).</div>{% empty %}<div class="small muted">Every judge has a normal load.</div>{% endfor %}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Flat judges {% if ig.flat_judges %}<span class="badge warn">{{ ig.flat_judges|length }}</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
+    {% for f in ig.flat_judges %}<div class="small">{{ f.role.external_id }} gave all {{ f.reviews }} projects the same score ({{ f.score|floatformat:2 }}). These reviews carry no ranking information; the results model keeps them, but they cannot move one project above another.</div>{% empty %}<div class="small muted">No judge scored everything the same.</div>{% endfor %}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Possible duplicate submissions {% if ig.duplicates %}<span class="badge warn">{{ ig.duplicates|length }}</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
+    {% for d in ig.duplicates %}<div class="small">{{ d.reason|capfirst }}: {% for x in d.projects %}<a href="/projects/{{ event.external_id }}/{{ x.external_id }}">{{ x.external_id }}</a> ({{ x.team.name }}, {{ x.submitted_at|date:"Y-m-d H:i" }}){% if not forloop.last %}, {% endif %}{% endfor %}</div>{% empty %}<div class="small muted">None found.</div>{% endfor %}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Deadline edge {% if ig.late %}<span class="badge bad">{{ ig.late|length }} late</span>{% elif ig.last_minute %}<span class="badge">{{ ig.last_minute|length }} last-minute</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
+    {% for x in ig.last_minute %}<div class="small">{{ x.project.external_id }} ({{ x.project.title }}) submitted {{ x.before_close }} before the deadline.</div>{% endfor %}
+    {% for x in ig.late %}<div class="small" style="color:var(--bad)">{{ x.external_id }} has a submission time after the deadline.</div>{% endfor %}
+    {% if not ig.late and not ig.last_minute %}<div class="small muted">Nothing in the last 10 minutes.</div>{% endif %}
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">Can every project be compared? {% if ig.components > 1 %}<span class="badge bad">{{ ig.components }} islands</span>{% else %}<span class="badge ok">yes</span>{% endif %}</h3>
+    <div class="small muted">Judges and projects form {{ ig.components }} connected group{{ ig.components|pluralize }} ({% for j, pr in ig.component_sizes %}{{ j }} judges × {{ pr }} projects{% if not forloop.last %}; {% endif %}{% endfor %}). Bias correction needs shared judges to compare projects, so a split means rankings across groups are not comparable.</div>
+  </div>
+</div>
+
+<h2>Judges</h2>
+<div class="table-scroll"><table class="data">
+  <thead><tr><th>Judge</th><th>Progress</th><th class="num">Done / assigned</th></tr></thead>
+  <tbody>{% for j in p.judges %}<tr><td><a href="/events/{{ event.external_id }}/judges/{{ j.role.external_id }}">{{ j.role.external_id }}</a></td>
+    <td style="min-width:8rem"><div class="bar" aria-hidden="true"><span style="width:{{ j.percent }}%"></span></div></td><td class="num">{{ j.done }} / {{ j.assigned }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endwith %}

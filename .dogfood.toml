@@ -1,0 +1,23 @@
+# Checker config. Run:  python3 run.py .dogfood.toml > acceptance-report.txt
+[portal]
+base_url = "http://localhost:8080"
+
+[tiers]
+# Honest claims only: add a tier when every feature in it is built (SPEC.md s3).
+claimed = []
+pitch = "A self-hostable Django portal for hackathon submissions and judging, with backend-enforced judge isolation."
+
+[auth]
+# Printed by `manage.py seed` on boot (src/portal/seed.py SEEDED_SESSIONS).
+organizer   = "Cookie: session=org_7f2a"
+judge_a     = "Cookie: session=jdg_a_91bc"
+judge_b     = "Cookie: session=jdg_b_44de"
+participant = "Cookie: session=prt_2e88"
+
+[routes]
+gallery      = "/projects"
+submit       = "/api/projects"
+judge_scores = "/api/judge/scores"
+# judge_a is fixture judge jdg_01; the checker sends this as judge_b.
+peer_scores  = "/api/judge/scores?judge=jdg_01"
+csv_export   = "/api/export.csv"

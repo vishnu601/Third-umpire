@@ -1,0 +1,16 @@
+services:
+  portal:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Writes the four fixed test sessions from .dogfood.toml. Demo only;
+      # set to 0 (and set a real DJANGO_SECRET_KEY) for a real event.
+      DOGFOOD_SEED_SESSIONS: "1"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,[::1],0.0.0.0"
+    volumes:
+      - portal-data:/data
+    restart: unless-stopped
+
+volumes:
+  portal-data:

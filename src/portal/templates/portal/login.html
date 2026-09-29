@@ -1,0 +1,15 @@
+{% extends "portal/base.html" %}
+{% block title %}Log in · Dogfood portal{% endblock %}
+{% block content %}
+<div class="card" style="max-width:26rem">
+  <h1>Log in</h1>
+  <form method="post">{% csrf_token %}
+    {% if form.non_field_errors %}<ul class="flash"><li class="error">{{ form.non_field_errors|join:" " }}</li></ul>{% endif %}
+    <div class="field"><label for="id_username">Email</label><input type="email" name="username" id="id_username" autocomplete="username" required value="{{ form.username.value|default:'' }}"></div>
+    <div class="field"><label for="id_password">Password</label><input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit">Log in</button>
+  </form>
+  <p class="small muted">No account? <a href="/signup{% if next %}?next={{ next|urlencode }}{% endif %}">Sign up</a>.</p>
+</div>
+{% endblock %}

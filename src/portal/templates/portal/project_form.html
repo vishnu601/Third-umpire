@@ -1,0 +1,40 @@
+{% extends "portal/base.html" %}
+{% block title %}{% if project %}Edit {{ project.title }}{% else %}New project{% endif %} · Dogfood portal{% endblock %}
+{% block content %}
+<p class="small"><a href="/teams/{{ team.external_id }}">← {{ team.name }}</a></p>
+<h1>{% if project %}Edit project{% else %}Start your project{% endif %}</h1>
+<p class="muted">{% if project and project.status == "submitted" %}<span class="badge ok">Submitted</span> Changes stay live until the deadline.{% else %}<span class="badge warn">Draft</span> Only your team and the organizers can see a draft.{% endif %}
+  Deadline {{ event.submissions_close|date:"Y-m-d H:i" }} UTC.</p>
+{% if not open %}<ul class="flash"><li class="error">Submissions are closed for this event. The server will refuse any change.</li></ul>{% endif %}
+<form class="card" method="post" enctype="multipart/form-data"
+      action="{% if project %}/teams/{{ team.external_id }}/project/{{ project.external_id }}{% else %}/teams/{{ team.external_id }}/project{% endif %}">{% csrf_token %}
+  <div class="field"><label for="title">Project name</label><input id="title" type="text" name="title" required maxlength="200" value="{{ project.title|default:'' }}"></div>
+  <div class="field"><label for="tagline">Tagline</label><input id="tagline" type="text" name="tagline" maxlength="200" value="{{ project.tagline|default:'' }}"><div class="hint">One line on what it does.</div></div>
+  <div class="field"><label for="description">Description</label><textarea id="description" name="description" rows="8">{{ project.description|default:'' }}</textarea></div>
+  <div class="row">
+    <div class="field"><label for="track">Track</label><select id="track" name="track"><option value="">No track</option>{% for t in tracks %}<option value="{{ t.external_id }}"{% if project.track_id == t.id %} selected{% endif %}>{{ t.name }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="tags">Tech tags</label><input id="tags" type="text" name="tags" value="{{ tags }}" placeholder="python, django, sqlite"><div class="hint">Comma separated, up to 10.</div></div>
+  </div>
+  <div class="row">
+    <div class="field"><label for="repo_url">Repository URL</label><input id="repo_url" type="url" name="repo_url" value="{{ project.repo_url|default:'' }}" placeholder="https://"></div>
+    <div class="field"><label for="demo_video_url">Demo video URL</label><input id="demo_video_url" type="url" name="demo_video_url" value="{{ project.demo_video_url|default:'' }}" placeholder="https://"></div>
+    <div class="field"><label for="live_url">Live link</label><input id="live_url" type="url" name="live_url" value="{{ project.live_url|default:'' }}" placeholder="https://"></div>
+  </div>
+  <div class="row">
+    <div class="field"><label for="thumbnail">Thumbnail</label>
+      {% if project.thumbnail %}<img class="thumb" style="max-width:14rem" src="{{ project.thumbnail.url }}" alt="Current thumbnail"><label class="small"><input type="checkbox" name="clear_thumbnail" value="1"> Remove</label>{% endif %}
+      <input id="thumbnail" type="file" name="thumbnail" accept="image/png,image/jpeg,image/gif,image/webp"><div class="hint">PNG, JPEG, GIF or WebP, up to 2 MB.</div></div>
+    <div class="field"><label for="gallery">Gallery images</label>
+      {% for img in project.images.all %}<div class="small"><img src="{{ img.image.url }}" alt="" style="height:3rem;vertical-align:middle;border-radius:4px"> <label><input type="checkbox" name="remove_image" value="{{ img.pk }}"> Remove</label></div>{% endfor %}
+      <input id="gallery" type="file" name="gallery" multiple accept="image/png,image/jpeg,image/gif,image/webp"><div class="hint">Up to 6 images in total.</div></div>
+  </div>
+  {% for q, answer in questions %}
+  <div class="field"><label for="answer_{{ q.pk }}">{{ q.prompt }}{% if q.required %} <span class="badge">required to submit</span>{% endif %}</label>
+    <textarea id="answer_{{ q.pk }}" name="answer_{{ q.pk }}" rows="3">{{ answer }}</textarea>{% if q.help_text %}<div class="hint">{{ q.help_text }}</div>{% endif %}</div>
+  {% endfor %}
+  <div class="row">
+    <div class="shrink"><button type="submit" name="action" value="save"{% if not open %} disabled{% endif %}>{% if project.status == "submitted" %}Save changes{% else %}Save draft{% endif %}</button></div>
+    {% if not project or project.status == "draft" %}<div class="shrink"><button type="submit" name="action" value="submit"{% if not open %} disabled{% endif %}>Submit project</button></div>{% endif %}
+  </div>
+</form>
+{% endblock %}

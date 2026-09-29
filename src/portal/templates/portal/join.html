@@ -1,0 +1,9 @@
+{% extends "portal/base.html" %}
+{% block title %}Join {{ team.name }} · Dogfood portal{% endblock %}
+{% block content %}
+<div class="card" style="max-width:30rem">
+  <h1>Join {{ team.name }}</h1>
+  <p>For <a href="/events/{{ event.external_id }}">{{ event.name }}</a>. You can be on one team per event.</p>
+  <form method="post">{% csrf_token %}<button type="submit">Join team</button></form>
+</div>
+{% endblock %}

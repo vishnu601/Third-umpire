@@ -1,0 +1,36 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ team.name }} · Dogfood portal{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}">← {{ event.name }}</a></p>
+<h1>{{ team.name }}</h1>
+<div class="cols">
+  <div class="stack">
+    <div class="card">
+      <h2 style="margin-top:0">Project</h2>
+      {% for p in projects %}
+        <p><strong>{{ p.title }}</strong>
+          {% if p.status == "submitted" %}<span class="badge ok">Submitted</span>{% else %}<span class="badge warn">Draft</span>{% endif %}
+          <span class="muted small">updated {{ p.updated_at|date:"Y-m-d H:i" }} UTC</span></p>
+        <p><a href="/projects/{{ event.external_id }}/{{ p.external_id }}">View</a>
+          {% if member and open %} · <a href="/teams/{{ team.external_id }}/project/{{ p.external_id }}">Edit</a>{% endif %}</p>
+      {% empty %}
+        {% if member and open %}<a class="btn" href="/teams/{{ team.external_id }}/project">Start your project</a>
+        {% else %}<p class="muted">No project.</p>{% endif %}
+      {% endfor %}
+      {% if not open %}<p class="muted small">Submissions are not open for this event, so the project can't change.</p>{% endif %}
+    </div>
+  </div>
+  <aside class="stack">
+    <div class="card"><h3 style="margin-top:0">Members</h3>
+      {% for m in members %}<div>{{ m.get_full_name|default:m.username }}</div>{% endfor %}
+    </div>
+    {% if member %}
+    <div class="card"><h3 style="margin-top:0">Invite link</h3>
+      <p class="small muted">Anyone with this link can join while submissions are open. One team per person per event.</p>
+      <label class="sr-only" for="invite">Invite link</label><input id="invite" type="text" readonly value="{{ invite_url }}" onclick="this.select()">
+      <form method="post" style="margin-top:.5rem">{% csrf_token %}<input type="hidden" name="action" value="rotate_invite"><button class="secondary" type="submit">Make a new link</button></form>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

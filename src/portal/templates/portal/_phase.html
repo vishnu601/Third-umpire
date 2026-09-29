@@ -1,0 +1,1 @@
+{% with ph=event.phase %}{% if ph == "open" %}<span class="badge ok">Open</span>{% elif ph == "not_open" %}<span class="badge">Not open yet</span>{% else %}<span class="badge">Closed</span>{% endif %}{% endwith %}{% if event.results_published %} <span class="badge ok">Results out</span>{% endif %}

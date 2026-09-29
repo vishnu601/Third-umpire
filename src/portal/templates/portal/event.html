@@ -1,0 +1,59 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ event.name }} · Dogfood portal{% endblock %}
+{% block content %}
+<h1>{{ event.name }}</h1>
+<p>{% include "portal/_phase.html" %}
+  <span class="muted small">
+  {% if event.submissions_open %}Opens {{ event.submissions_open|date:"Y-m-d H:i" }} UTC · {% endif %}Closes {{ event.submissions_close|date:"Y-m-d H:i" }} UTC{% if event.judging_close %} · Judging closes {{ event.judging_close|date:"Y-m-d H:i" }} UTC{% endif %}
+  </span></p>
+<div class="cols">
+  <div class="stack">
+    {% if event.description %}<div class="card">{{ event.description|linebreaks }}</div>{% endif %}
+    <div class="card">
+      <h2 style="margin-top:0">Judging rubric</h2>
+      <p class="muted small">Scores are 1 to 5 per criterion, combined by these weights. Judge bias is corrected before ranking; the method is on the results page.</p>
+      <table class="data"><thead><tr><th>Criterion</th><th class="num">Weight</th><th>1 means</th><th>5 means</th></tr></thead><tbody>
+      {% for c in criteria %}<tr><td><strong>{{ c.name }}</strong>{% if c.description %}<div class="small muted">{{ c.description }}</div>{% endif %}</td><td class="num">{{ c.weight|floatformat:"-2" }}</td><td class="small">{{ c.anchor_low }}</td><td class="small">{{ c.anchor_high }}</td></tr>{% endfor %}
+      </tbody></table>
+    </div>
+    <div class="row">
+      <div class="card"><h3 style="margin-top:0">Tracks</h3>{% for t in tracks %}<a class="chip" href="/projects?event={{ event.external_id }}&track={{ t.external_id }}">{{ t.name }}</a>{% empty %}<span class="muted">None yet.</span>{% endfor %}</div>
+      <div class="card"><h3 style="margin-top:0">Prizes</h3>{% for p in prizes %}<div><strong>{{ p.name }}</strong>{% if p.value %} · {{ p.value }}{% endif %}{% if p.track %} <span class="chip">{{ p.track.name }}</span>{% endif %}</div>{% empty %}<span class="muted">None yet.</span>{% endfor %}</div>
+    </div>
+  </div>
+  <aside class="stack">
+    <div class="card">
+      <a href="/projects?event={{ event.external_id }}">Browse this event's projects</a>
+      {% if event.results_published %}<br><a href="/events/{{ event.external_id }}/results">Results</a>{% endif %}
+    </div>
+    {% if is_organizer %}
+    <div class="card"><h3 style="margin-top:0">Organizer</h3>
+      <a href="/events/{{ event.external_id }}/manage">Manage event</a><br>
+      <a href="/events/{{ event.external_id }}/judges">Judges and assignment</a><br>
+      <a href="/events/{{ event.external_id }}/dashboard">Live dashboard</a><br>
+      <a href="/events/{{ event.external_id }}/results">Results</a><br>
+      <a href="/events/{{ event.external_id }}/audit">Audit log</a>
+    </div>
+    {% endif %}
+    {% if is_judge %}<div class="card"><a href="/judge">Go to your judging queue</a></div>{% endif %}
+    <div class="card">
+      {% if my_team %}
+        <h3 style="margin-top:0">Your team</h3><a href="/teams/{{ my_team.external_id }}">{{ my_team.name }}</a>
+      {% elif is_judge %}
+        <p class="muted small">Judges of this event can't join a team in it.</p>
+      {% elif phase != "open" %}
+        <p class="muted small">Team formation is closed.</p>
+      {% elif user.is_authenticated %}
+        <h3 style="margin-top:0">Start a team</h3>
+        <form method="post" action="/events/{{ event.external_id }}/teams">{% csrf_token %}
+          <div class="field"><label for="team-name">Team name</label><input id="team-name" type="text" name="name" required maxlength="200"></div>
+          <button type="submit">Create team</button>
+        </form>
+        <p class="small muted">Teammates join with the invite link on your team page.</p>
+      {% else %}
+        <a href="/login?next={{ request.path|urlencode }}">Log in</a> to start or join a team.
+      {% endif %}
+    </div>
+  </aside>
+</div>
+{% endblock %}

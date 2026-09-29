@@ -1,0 +1,10 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ error.status }} · Dogfood portal{% endblock %}
+{% block content %}
+<div class="card" style="max-width:36rem">
+  <h1>{% if error.status == 403 %}Not allowed{% elif error.status == 404 %}Not found{% elif error.status == 410 %}Gone{% else %}Something is wrong{% endif %}</h1>
+  <p>{{ error.message|capfirst }}.</p>
+  <p class="muted small">Code: <code>{{ error.code }}</code> · HTTP {{ error.status }}</p>
+  <p><a href="/projects">Back to projects</a></p>
+</div>
+{% endblock %}

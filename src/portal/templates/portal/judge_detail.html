@@ -1,0 +1,13 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ role.external_id }} · {{ event.name }}{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}/judges">← Judges</a></p>
+<h1>{{ role.external_id }} <span class="muted" style="font-weight:400">{{ role.user.get_full_name|default:role.user.email }}</span></h1>
+<table class="data"><thead><tr><th>Project</th><th>Source</th><th>Status</th><th></th></tr></thead><tbody>
+{% for a, done in rows %}<tr><td>{{ a.project.title }} <span class="small muted">{{ a.project.external_id }}</span></td><td>{{ a.source }}</td>
+  <td>{% if done %}<span class="badge ok">Reviewed</span>{% else %}<span class="badge warn">Pending</span>{% endif %}</td>
+  <td>{% if not done %}<form class="inline" method="post" action="/events/{{ event.external_id }}/judges">{% csrf_token %}<input type="hidden" name="action" value="unassign"><input type="hidden" name="assignment" value="{{ a.pk }}"><button class="danger" type="submit">Unassign</button></form>{% endif %}</td></tr>
+{% empty %}<tr><td colspan="4" class="muted">Nothing assigned.</td></tr>{% endfor %}
+</tbody></table>
+<p class="small muted">Scores are not shown here on purpose. Organizers see them in the results and the CSV export.</p>
+{% endblock %}

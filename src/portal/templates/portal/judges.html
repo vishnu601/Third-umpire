@@ -1,0 +1,55 @@
+{% extends "portal/base.html" %}
+{% block title %}Judges · {{ event.name }}{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}/manage">← Manage {{ event.name }}</a></p>
+<h1>Judges and assignment</h1>
+<p class="muted">Judges only ever see their own reviews. A judge is never assigned a project from a team they belong to.</p>
+
+<div class="cols">
+<div class="stack">
+  <h2>Automatic assignment</h2>
+  <form class="card" method="post">{% csrf_token %}<input type="hidden" name="action" value="assign">
+    <p class="small muted" style="margin-top:0">Tops every submitted project up to the target. Projects with the fewest judges go first; each takes the least-loaded judges who cover its track (judges with no tracks are generalists), then anyone else. Existing assignments are kept, so running it twice changes nothing.</p>
+    <div class="row">
+      <div class="field"><label for="per_project">Judges per project</label><input id="per_project" type="number" min="1" max="10" name="per_project" value="{{ event.reviews_per_project }}"></div>
+      <div class="shrink field"><button type="submit">Assign</button></div>
+    </div>
+  </form>
+
+  <h2>Batch assignment</h2>
+  <form class="card" method="post">{% csrf_token %}<input type="hidden" name="action" value="batch">
+    <div class="field"><label for="judge">Judge</label><select id="judge" name="judge" required>{% for r, load, done in judges %}<option value="{{ r.external_id }}">{{ r.external_id }} · {{ r.user.get_full_name|default:r.user.email }} ({{ load }} assigned)</option>{% endfor %}</select></div>
+    <fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-weight:600;font-size:.9rem">Projects <span class="muted small">(fewest reviews first)</span></legend>
+      <div class="table-scroll" style="max-height:18rem;overflow-y:auto"><table class="data"><tbody>
+      {% for p in projects %}<tr><td><label><input type="checkbox" name="projects" value="{{ p.external_id }}"> {{ p.title }}</label> <span class="muted small">{{ p.external_id }}{% if p.track %} · {{ p.track.name }}{% endif %}</span></td><td class="num small">{{ p.n_reviews }} reviews · {{ p.n_assigned }} assigned</td></tr>{% endfor %}
+      </tbody></table></div>
+    </fieldset>
+    <button type="submit">Assign selected</button>
+  </form>
+
+  <h2>Judges ({{ judges|length }})</h2>
+  <div class="table-scroll"><table class="data">
+    <thead><tr><th>Judge</th><th>Tracks</th><th class="num">Done / assigned</th></tr></thead>
+    <tbody>{% for r, load, done in judges %}
+      <tr><td><a href="/events/{{ event.external_id }}/judges/{{ r.external_id }}">{{ r.external_id }}</a> <span class="small muted">{{ r.user.get_full_name|default:r.user.email }}</span></td>
+        <td class="small">{% for t in r.tracks.all %}<span class="chip">{{ t.name }}</span>{% empty %}<span class="muted">generalist</span>{% endfor %}</td>
+        <td class="num">{{ done }} / {{ load }}</td></tr>
+    {% empty %}<tr><td colspan="3" class="muted">No judges yet. Invite some.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+<aside class="stack">
+  <h2>Invite a judge</h2>
+  <form class="card" method="post">{% csrf_token %}<input type="hidden" name="action" value="invite">
+    <div class="field"><label for="email">Email</label><input id="email" type="email" name="email" required></div>
+    <button type="submit">Create invite link</button>
+    <p class="small muted">The judge opens the link, logs in or signs up with this email, and accepts. People on a team in this event can't accept.</p>
+  </form>
+  {% if invites %}
+  <div class="card"><h3 style="margin-top:0">Invites</h3>
+    {% for i in invites %}<div class="field"><div class="small"><strong>{{ i.email }}</strong> {% if i.accepted_at %}<span class="badge ok">Accepted</span>{% else %}<span class="badge">Pending</span>{% endif %}</div>
+      {% if not i.accepted_at %}<input type="text" readonly value="{{ base }}{{ i.token }}" onclick="this.select()" aria-label="Invite link for {{ i.email }}">{% endif %}</div>{% endfor %}
+  </div>
+  {% endif %}
+</aside>
+</div>
+{% endblock %}

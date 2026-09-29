@@ -1,0 +1,19 @@
+{% extends "portal/base.html" %}
+{% block title %}Judging · Dogfood portal{% endblock %}
+{% block content %}
+<h1>Your judging queue</h1>
+<p class="muted">You see only your assignments and your own scores. Other judges' scores are never shown to you, here or in the API.</p>
+{% for e in events %}
+  <h2>{{ e.event.name }}</h2>
+  {% with total=e.rows|length %}
+  <div class="table-scroll"><table class="data">
+    <thead><tr><th>Project</th><th>Track</th><th>Status</th><th></th></tr></thead>
+    <tbody>{% for p, done in e.rows %}
+      <tr><td>{{ p.title }}<div class="small muted">{{ p.tagline }}</div></td><td class="small">{{ p.track.name|default:"" }}</td>
+        <td>{% if done %}<span class="badge ok">Scored</span>{% else %}<span class="badge warn">To do</span>{% endif %}</td>
+        <td><a href="/judge/{{ e.event.external_id }}/{{ p.external_id }}">{% if done %}Edit score{% else %}Score{% endif %}</a></td></tr>
+    {% empty %}<tr><td colspan="4" class="muted">Nothing assigned yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endwith %}
+{% endfor %}
+{% endblock %}

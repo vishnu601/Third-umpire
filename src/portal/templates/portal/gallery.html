@@ -1,0 +1,36 @@
+{% extends "portal/base.html" %}
+{% block title %}Projects · Dogfood portal{% endblock %}
+{% block content %}
+<h1>Projects</h1>
+<p class="muted">Every submitted project, across events. Drafts stay private to their team.</p>
+<form class="card row" method="get" action="/projects" role="search">
+  <div><label class="sr-only" for="q">Search</label><input id="q" type="search" name="q" value="{{ q }}" placeholder="Search name, tagline, team"></div>
+  <div><label class="sr-only" for="event">Event</label>
+    <select id="event" name="event"><option value="">All events</option>
+      {% for e in events %}<option value="{{ e.external_id }}"{% if e.external_id == event %} selected{% endif %}>{{ e.name }}</option>{% endfor %}
+    </select></div>
+  <div><label class="sr-only" for="track">Track</label>
+    <select id="track" name="track"><option value="">All tracks</option>
+      {% for t in tracks %}<option value="{{ t.external_id }}"{% if t.external_id == track %} selected{% endif %}>{{ t.name }}</option>{% endfor %}
+    </select></div>
+  <div><label class="sr-only" for="tag">Tech tag</label>
+    <select id="tag" name="tag"><option value="">Any tech</option>
+      {% for t in tags %}<option value="{{ t.name }}"{% if t.name == tag %} selected{% endif %}>{{ t.name }}</option>{% endfor %}
+    </select></div>
+  <div class="shrink"><button type="submit">Filter</button></div>
+</form>
+<p class="muted small">{{ projects|length }} project{{ projects|length|pluralize }}</p>
+<div class="grid">
+  {% for p in projects %}
+  <article class="card">
+    {% if p.thumbnail %}<img class="thumb" src="{{ p.thumbnail.url }}" alt="">{% else %}<div class="thumb" aria-hidden="true">{{ p.title|slice:":1" }}</div>{% endif %}
+    <h2 style="margin:.75rem 0 .15rem;font-size:1.05rem"><a href="/projects/{{ p.event.external_id }}/{{ p.external_id }}">{{ p.title }}</a></h2>
+    <p class="muted small" style="margin:0 0 .4rem">{{ p.team.name }}{% if p.track %} · {{ p.track.name }}{% endif %}</p>
+    {% if p.tagline %}<p style="margin:0 0 .5rem">{{ p.tagline }}</p>{% endif %}
+    {% for t in p.tags.all %}<a class="chip" href="?tag={{ t.name }}">{{ t.name }}</a>{% endfor %}
+  </article>
+  {% empty %}
+  <p>No projects match.</p>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "portal/base.html" %}
+{% block title %}Judge invite · {{ event.name }}{% endblock %}
+{% block content %}
+<div class="card" style="max-width:32rem">
+  <h1>Judge {{ event.name }}</h1>
+  <p>This invite is for <strong>{{ invite.email }}</strong>.
+  {% if invite.accepted_at %}It has been used.{% else %}You are logged in as {{ user.email }}.{% endif %}</p>
+  {% if not invite.accepted_at %}<form method="post">{% csrf_token %}<button type="submit">Accept and become a judge</button></form>{% endif %}
+  <p class="small muted">As a judge you see only the projects assigned to you and only your own scores.</p>
+</div>
+{% endblock %}

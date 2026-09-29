@@ -1,0 +1,22 @@
+{% extends "portal/base.html" %}
+{% block title %}Audit log · {{ event.name }}{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}/manage">← Manage {{ event.name }}</a></p>
+<h1>Audit log</h1>
+<p class="muted">Every change to the event, its teams, submissions, assignments and scores, including refused late submissions. Newest first. <a href="/api/events/{{ event.external_id }}/audit.csv">Download CSV</a>.</p>
+<form class="row card" method="get">
+  <div><label class="sr-only" for="action">Action</label>
+    <select id="action" name="action"><option value="">All actions</option>
+      {% for a in action_choices %}<option value="{{ a }}"{% if a == action %} selected{% endif %}>{{ a }}</option>{% endfor %}
+    </select></div>
+  <div class="shrink"><button type="submit">Filter</button></div>
+</form>
+<div class="table-scroll"><table class="data">
+  <thead><tr><th>When (UTC)</th><th>Who</th><th>What</th><th>Target</th><th>Detail</th></tr></thead>
+  <tbody>{% for e in entries %}
+    <tr><td class="small">{{ e.created_at|date:"Y-m-d H:i:s" }}</td><td class="small">{{ e.actor.username|default:"system" }}</td>
+      <td><span class="badge{% if e.action == 'deadline.refused' %} bad{% elif e.action|slice:':6' == 'review' %} warn{% endif %}">{{ e.action }}</span></td>
+      <td class="small">{{ e.target }}</td><td class="small"><code>{{ e.detail_text }}</code></td></tr>
+  {% empty %}<tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ project.title }} · Dogfood portal{% endblock %}
+{% block content %}
+<p class="small"><a href="/projects?event={{ project.event.external_id }}">← {{ project.event.name }} projects</a></p>
+<div class="cols">
+  <div class="stack">
+    <div>
+      <h1>{{ project.title }}</h1>
+      {% if project.tagline %}<p style="font-size:1.1rem;margin:.25rem 0">{{ project.tagline }}</p>{% endif %}
+      <p class="muted small">{{ project.team.name }}{% if project.track %} · {{ project.track.name }}{% endif %}
+        {% if project.status == "draft" %} <span class="badge warn">Draft, not public</span>{% else %} · submitted {{ project.submitted_at|date:"Y-m-d H:i" }} UTC{% endif %}</p>
+      {% if can_edit %}<a class="btn secondary" href="/teams/{{ project.team.external_id }}/project/{{ project.external_id }}">Edit</a>{% endif %}
+    </div>
+    {% if project.thumbnail %}<img class="thumb" src="{{ project.thumbnail.url }}" alt="{{ project.title }} thumbnail">{% endif %}
+    {% if project.description %}<div class="card">{{ project.description|linebreaks }}</div>{% endif %}
+    {% if project.images.all %}<div class="grid">{% for img in project.images.all %}<img class="thumb" src="{{ img.image.url }}" alt="{{ img.caption|default:'Screenshot' }}">{% endfor %}</div>{% endif %}
+    {% for a in answers %}{% if a.answer %}<div class="card"><h3 style="margin-top:0">{{ a.question.prompt }}</h3>{{ a.answer|linebreaks }}</div>{% endif %}{% endfor %}
+  </div>
+  <aside class="stack">
+    <div class="card">
+      {% if project.repo_url %}<div><a href="{{ project.repo_url }}" rel="noopener nofollow">Repository</a></div>{% endif %}
+      {% if project.demo_video_url %}<div><a href="{{ project.demo_video_url }}" rel="noopener nofollow">Demo video</a></div>{% endif %}
+      {% if project.live_url %}<div><a href="{{ project.live_url }}" rel="noopener nofollow">Live demo</a></div>{% endif %}
+      {% if not project.repo_url and not project.demo_video_url and not project.live_url %}<span class="muted">No links.</span>{% endif %}
+    </div>
+    {% if project.tags.all %}<div class="card">{% for t in project.tags.all %}<a class="chip" href="/projects?tag={{ t.name }}">{{ t.name }}</a>{% endfor %}</div>{% endif %}
+    <div class="card"><h3 style="margin-top:0">Team</h3>{% for m in members %}<div>{{ m.get_full_name|default:"Member" }}</div>{% endfor %}</div>
+  </aside>
+</div>
+{% endblock %}

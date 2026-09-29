@@ -1,0 +1,116 @@
+{% extends "portal/base.html" %}
+{% block title %}Manage {{ event.name }} · Dogfood portal{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}">← {{ event.name }}</a></p>
+<h1>Manage event</h1>
+<p class="small">
+  <a href="/events/{{ event.external_id }}/judges">Judges and assignment</a> ·
+  <a href="/events/{{ event.external_id }}/dashboard">Live dashboard</a> ·
+  <a href="/events/{{ event.external_id }}/results">Results</a> ·
+  <a href="/events/{{ event.external_id }}/audit">Audit log</a>
+</p>
+<h2>Details and dates</h2>
+<form class="card" method="post">{% csrf_token %}<input type="hidden" name="action" value="details">
+  {% include "portal/_event_fields.html" %}
+  <button type="submit">Save details</button>
+</form>
+
+<h2>Tracks</h2>
+<div class="card">
+  <table class="data"><thead><tr><th>Track</th><th class="num">Projects</th><th></th></tr></thead><tbody>
+  {% for t in tracks %}<tr><td>{{ t.name }} <span class="muted small">{{ t.external_id }}</span></td><td class="num">{{ t.n }}</td>
+    <td>{% if not t.n %}<form class="inline" method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_track"><input type="hidden" name="track" value="{{ t.external_id }}"><button class="danger" type="submit">Remove</button></form>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="3" class="muted">No tracks yet.</td></tr>{% endfor %}
+  </tbody></table>
+  <form class="row" method="post" style="margin-top:.75rem">{% csrf_token %}<input type="hidden" name="action" value="add_track">
+    <div><label class="sr-only" for="track-name">Track name</label><input id="track-name" type="text" name="name" placeholder="New track name" required></div>
+    <div class="shrink"><button type="submit">Add track</button></div>
+  </form>
+</div>
+
+<h2>Prizes</h2>
+<div class="card">
+  <table class="data"><thead><tr><th>Prize</th><th>Value</th><th>Track</th><th></th></tr></thead><tbody>
+  {% for p in prizes %}<tr><td>{{ p.name }}</td><td>{{ p.value }}</td><td>{{ p.track.name|default:"Overall" }}</td>
+    <td><form class="inline" method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_prize"><input type="hidden" name="prize" value="{{ p.pk }}"><button class="danger" type="submit">Remove</button></form></td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">No prizes yet.</td></tr>{% endfor %}
+  </tbody></table>
+  <form class="row" method="post" style="margin-top:.75rem">{% csrf_token %}<input type="hidden" name="action" value="add_prize">
+    <div><label class="sr-only" for="prize-name">Prize name</label><input id="prize-name" type="text" name="name" placeholder="Prize name" required></div>
+    <div><label class="sr-only" for="prize-value">Value</label><input id="prize-value" type="text" name="value" placeholder="Value, e.g. 800 USD"></div>
+    <div><label class="sr-only" for="prize-track">Track</label><select id="prize-track" name="track"><option value="">Overall</option>{% for t in tracks %}<option value="{{ t.external_id }}">{{ t.name }}</option>{% endfor %}</select></div>
+    <div class="shrink"><button type="submit">Add prize</button></div>
+  </form>
+</div>
+
+<h2>Rubric</h2>
+<div class="card">
+  <p class="muted small">Weights are relative: 2 counts twice as much as 1; 0 switches a criterion off. Anchors are shown to judges next to every score.</p>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="weights">
+    <table class="data"><thead><tr><th>Criterion</th><th class="num">Weight</th></tr></thead><tbody>
+    {% for c in criteria %}<tr><td>{{ c.name }}</td><td class="num"><label class="sr-only" for="w{{ c.pk }}">Weight for {{ c.name }}</label><input id="w{{ c.pk }}" style="max-width:7rem" type="number" step="0.001" min="0" max="100" name="weight_{{ c.pk }}" value="{{ c.weight|floatformat:'-3' }}"></td></tr>{% endfor %}
+    </tbody></table>
+    <p><button type="submit">Save weights</button></p>
+  </form>
+  {% for c in criteria %}
+  <details><summary>Anchors for {{ c.name }}</summary>
+    <form method="post" class="card" style="margin:.5rem 0">{% csrf_token %}<input type="hidden" name="action" value="criterion_text"><input type="hidden" name="criterion" value="{{ c.pk }}">
+      <div class="field"><label>Description</label><input type="text" name="description" maxlength="300" value="{{ c.description }}"></div>
+      <div class="row">
+        <div class="field"><label>A 1 looks like</label><input type="text" name="anchor_low" maxlength="300" value="{{ c.anchor_low }}"></div>
+        <div class="field"><label>A 3 looks like</label><input type="text" name="anchor_mid" maxlength="300" value="{{ c.anchor_mid }}"></div>
+        <div class="field"><label>A 5 looks like</label><input type="text" name="anchor_high" maxlength="300" value="{{ c.anchor_high }}"></div>
+      </div>
+      <button type="submit">Save anchors</button>
+    </form>
+  </details>
+  {% endfor %}
+  {% if has_reviews %}<p class="small muted">Reviews exist, so new criteria are locked (they would leave existing reviews incomplete). Weights can still change; results recompute.</p>
+  {% else %}
+  <form class="row" method="post" style="margin-top:.75rem">{% csrf_token %}<input type="hidden" name="action" value="add_criterion">
+    <div><label class="sr-only" for="crit-name">Criterion name</label><input id="crit-name" type="text" name="name" placeholder="New criterion" required></div>
+    <div class="shrink"><button type="submit">Add criterion</button></div>
+  </form>
+  {% endif %}
+</div>
+
+<h2>Submission questions</h2>
+<div class="card">
+  <p class="muted small">Every team answers these on its project form. Required answers are enforced when a team submits.</p>
+  <table class="data"><thead><tr><th>Question</th><th>Required</th><th></th></tr></thead><tbody>
+  {% for q in questions %}<tr><td>{{ q.prompt }}{% if q.help_text %}<div class="small muted">{{ q.help_text }}</div>{% endif %}</td>
+    <td><form class="inline" method="post">{% csrf_token %}<input type="hidden" name="action" value="toggle_question"><input type="hidden" name="question" value="{{ q.pk }}"><button class="link" type="submit">{{ q.required|yesno:"Required,Optional" }}</button></form></td>
+    <td><form class="inline" method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_question"><input type="hidden" name="question" value="{{ q.pk }}"><button class="danger" type="submit">Remove</button></form></td></tr>
+  {% empty %}<tr><td colspan="3" class="muted">No custom questions.</td></tr>{% endfor %}
+  </tbody></table>
+  <form method="post" style="margin-top:.75rem">{% csrf_token %}<input type="hidden" name="action" value="add_question">
+    <div class="row">
+      <div><label class="sr-only" for="q-prompt">Question</label><input id="q-prompt" type="text" name="prompt" placeholder="Question, e.g. Which sponsor API did you use?" required></div>
+      <div><label class="sr-only" for="q-help">Help text</label><input id="q-help" type="text" name="help_text" placeholder="Help text (optional)"></div>
+      <div class="shrink"><label><input type="checkbox" name="required" value="1" checked> Required</label></div>
+      <div class="shrink"><button type="submit">Add question</button></div>
+    </div>
+  </form>
+</div>
+
+<h2>Results</h2>
+<div class="card">
+  {% if event.results_published %}
+    <p><span class="badge ok">Published</span> Anyone can see the <a href="/events/{{ event.external_id }}/results">results page</a>.</p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="unpublish"><button class="secondary" type="submit">Hide results again</button></form>
+  {% else %}
+    <p class="muted">Results are visible only to organizers until you publish them.</p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="publish"><button type="submit">Publish results</button></form>
+  {% endif %}
+</div>
+
+<h2>Exports (CSV)</h2>
+<div class="card small">
+  <a href="/api/events/{{ event.external_id }}/teams.csv">Teams and members</a> ·
+  <a href="/api/events/{{ event.external_id }}/submissions.csv">Submissions</a> ·
+  <a href="/api/events/{{ event.external_id }}/assignments.csv">Assignments</a> ·
+  <a href="/api/export.csv?event={{ event.external_id }}">Scores</a> ·
+  <a href="/api/events/{{ event.external_id }}/results.csv">Results</a> ·
+  <a href="/api/events/{{ event.external_id }}/audit.csv">Audit log</a>
+</div>
+{% endblock %}
