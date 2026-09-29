@@ -196,6 +196,10 @@ def event_manage(request, event_id):
             "criteria": event.criteria.all(),
             "questions": event.questions.all(),
             "has_reviews": Review.objects.filter(project__event=event).exists(),
+            "pending_reviews": services.pending_reviews(event),
+            "organizers": EventRole.objects.filter(event=event, role=EventRole.Role.ORGANIZER)
+            .select_related("user")
+            .order_by("user__username"),
         },
     )
 
@@ -229,6 +233,9 @@ def _manage_action(request, event):
         services.delete_question(event, user, get_object_or_404(EventQuestion, event=event, pk=post.get("question")))
     elif action == "toggle_question":
         services.toggle_question(event, user, get_object_or_404(EventQuestion, event=event, pk=post.get("question")))
+    elif action == "add_organizer":
+        role = services.add_organizer(event, user, post.get("email"))
+        messages.success(request, f"{role.user.username} is now an organizer of this event.")
     elif action == "publish":
         services.set_results_published(event, user, True)
         messages.success(request, "Results are public.")
@@ -374,7 +381,7 @@ def judges(request, event_id):
     load = dict(Assignment.objects.filter(event=event).values_list("judge_id").annotate(n=Count("id")))
     done = dict(Review.objects.filter(project__event=event).values_list("judge_id").annotate(n=Count("id")))
     projects = (
-        Project.objects.filter(event=event, status=Project.Status.SUBMITTED)
+        Project.objects.filter(event=event, status=Project.Status.SUBMITTED, withdrawn_at__isnull=True)
         .select_related("track")
         .annotate(n_assigned=Count("assignments", distinct=True), n_reviews=Count("reviews", distinct=True))
         .order_by("n_reviews", "external_id")
@@ -496,7 +503,36 @@ def score(request, event_id, project_id):
 def dashboard(request, event_id):
     event = get_object_or_404(Event, external_id=event_id)
     services.require_organizer(request.user, event)
+    if request.method == "POST":
+        action = request.POST.get("action")
+        project = get_object_or_404(Project, event=event, external_id=request.POST.get("project"))
+        if action == "withdraw":
+            services.withdraw_project(event, request.user, project, request.POST.get("reason"))
+            messages.success(request, f"{project.external_id} is withdrawn from judging, results and the gallery.")
+        elif action == "restore":
+            services.restore_project(event, request.user, project)
+            messages.success(request, f"{project.external_id} is back in judging.")
+        else:
+            raise Refused(400, "unknown_action")
+        return redirect(request.path)
     return render(request, "portal/dashboard.html", {"event": event, "p": services.progress(event)})
+
+
+@page
+def project_reviews(request, event_id, project_id):
+    """Organizer only: every judge's scores and comment on one project."""
+    event = get_object_or_404(Event, external_id=event_id)
+    services.require_organizer(request.user, event)
+    project = get_object_or_404(Project.objects.select_related("team", "track"), event=event, external_id=project_id)
+    criteria = list(event.criteria.all())
+    roles = dict(EventRole.objects.filter(event=event, role=EventRole.Role.JUDGE).values_list("user_id", "external_id"))
+    rows = []
+    for r in project.reviews.select_related("judge").prefetch_related("scores__criterion").order_by("created_at"):
+        values = {s.criterion.key: s.value for s in r.scores.all()}
+        rows.append({"review": r, "judge": roles.get(r.judge_id) or r.judge.username,
+                     "values": [values.get(c.key) for c in criteria]})
+    return render(request, "portal/project_reviews.html",
+                  {"event": event, "project": project, "criteria": criteria, "rows": rows})
 
 
 @page

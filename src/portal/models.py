@@ -220,6 +220,10 @@ class Project(models.Model):
     tags = models.ManyToManyField(Tag, blank=True, related_name="projects")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
     submitted_at = models.DateTimeField(null=True, blank=True)
+    # Set by an organizer (a duplicate, a rules breach): out of judging, results and the gallery,
+    # but kept, with its reviews, for the record and the exports.
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_reason = models.CharField(max_length=300, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

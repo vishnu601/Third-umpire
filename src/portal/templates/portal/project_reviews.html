@@ -1,0 +1,17 @@
+{% extends "portal/base.html" %}
+{% block title %}Reviews of {{ project.title }} · {{ event.name }}{% endblock %}
+{% block content %}
+<p class="small"><a href="/events/{{ event.external_id }}/results">← Results</a></p>
+<h1>Reviews of {{ project.title }}</h1>
+<p class="muted small"><a href="/projects/{{ event.external_id }}/{{ project.external_id }}">{{ project.external_id }}</a> · {{ project.team.name }}{% if project.track %} · {{ project.track.name }}{% endif %}{% if project.withdrawn_at %} · <span class="badge warn">withdrawn</span>{% endif %}</p>
+<div class="table-scroll"><table class="data">
+  <thead><tr><th>Judge</th>{% for c in criteria %}<th class="num">{{ c.name }}</th>{% endfor %}<th>Comment</th><th>Last change (UTC)</th></tr></thead>
+  <tbody>{% for row in rows %}<tr>
+    <td><a href="/events/{{ event.external_id }}/judges/{{ row.judge }}">{{ row.judge }}</a></td>
+    {% for v in row.values %}<td class="num">{{ v|default:"—" }}</td>{% endfor %}
+    <td class="small">{{ row.review.comment|default:"—"|linebreaksbr }}</td>
+    <td class="small">{{ row.review.updated_at|date:"Y-m-d H:i" }}</td>
+  </tr>{% empty %}<tr><td colspan="{{ criteria|length|add:3 }}" class="muted">No reviews yet.</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="small muted">Raw scores, before the bias correction. Only organizers can see this page; judges only ever see their own reviews.</p>
+{% endblock %}

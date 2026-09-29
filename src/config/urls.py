@@ -34,6 +34,7 @@ urlpatterns = [
     path("events/<str:event_id>/dashboard", pages.dashboard, name="dashboard"),
     path("events/<str:event_id>/dashboard/live", pages.dashboard_live, name="dashboard-live"),
     path("events/<str:event_id>/audit", pages.audit_log, name="audit"),
+    path("events/<str:event_id>/projects/<str:project_id>/reviews", pages.project_reviews, name="project-reviews"),
     # judges
     path("invites/<str:token>", pages.invite_accept, name="invite"),
     path("judge", pages.judge_home, name="judge-home"),

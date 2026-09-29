@@ -26,7 +26,7 @@
       <td class="num">{{ s.rank_lo }}–{{ s.rank_hi }}</td>
       <td class="num">{% widthratio s.p_first 1 100 %}%</td>
       <td class="num">{% widthratio s.p_top 1 100 %}%</td>
-      <td>{% if s.contested %}<span class="badge warn">too close</span>{% endif %}{% if s.low_confidence %} <span class="badge">few reviews</span>{% endif %}</td>
+      <td>{% if s.contested %}<span class="badge warn">too close</span>{% endif %}{% if s.low_confidence %} <span class="badge">few reviews</span>{% endif %}{% if organizer %} <a class="small" href="/events/{{ event.external_id }}/projects/{{ project.external_id }}/reviews">reviews</a>{% endif %}</td>
     </tr>
   {% endfor %}</tbody>
 </table></div>
@@ -57,7 +57,7 @@
     <td class="num">{% if e.leniency is None %}—{% else %}{{ e.leniency|floatformat:2 }}{% endif %}</td><td>{% if e.flat %}<span class="badge warn">flat, excluded</span>{% endif %}</td></tr>{% endfor %}</tbody>
 </table></div>
 
-<h2>Publish</h2>
+<h2>Share</h2>
 <div class="card small">
   <a href="/api/events/{{ event.external_id }}/results.csv">Download results CSV</a> · <a href="/api/export.csv?event={{ event.external_id }}">All scores CSV</a>
   <details style="margin-top:.5rem"><summary>Copy as Markdown (for a blog post)</summary><label class="sr-only" for="md">Markdown</label><textarea id="md" rows="16" readonly onclick="this.select()">{{ markdown }}</textarea></details>

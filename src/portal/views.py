@@ -20,7 +20,7 @@ def gallery(request):
     tag = request.GET.get("tag", "").strip()
 
     projects = (
-        Project.objects.filter(status=Project.Status.SUBMITTED)
+        Project.objects.filter(status=Project.Status.SUBMITTED, withdrawn_at__isnull=True)
         .select_related("track", "team", "event")
         .prefetch_related("tags")
     )
@@ -44,7 +44,7 @@ def gallery(request):
             "projects": projects.distinct(),
             "events": Event.objects.all(),
             "tracks": tracks,
-            "tags": Tag.objects.filter(projects__status=Project.Status.SUBMITTED).distinct(),
+            "tags": Tag.objects.filter(projects__status=Project.Status.SUBMITTED, projects__withdrawn_at__isnull=True).distinct(),
             "q": q,
             "event": event,
             "track": track,
@@ -275,7 +275,7 @@ def submissions_csv(request, event_id):
     header = [
         "project_id", "team_id", "team_name", "status", "submitted_at", "title", "tagline", "description", "track",
         "tech_tags", "repo_url", "demo_video_url", "live_url", "thumbnail", "gallery_images",
-        *[f"q{q.pk}: {q.prompt}" for q in questions],
+        "withdrawn_at", "withdrawn_reason", *[f"q{q.pk}: {q.prompt}" for q in questions],
     ]
 
     def rows():
@@ -286,6 +286,7 @@ def submissions_csv(request, event_id):
                 p.submitted_at.isoformat() if p.submitted_at else "", p.title, p.tagline, p.description,
                 p.track.external_id if p.track else "", " ".join(t.name for t in p.tags.all()),
                 p.repo_url, p.demo_video_url, p.live_url, p.thumbnail.name if p.thumbnail else "", p.images.count(),
+                p.withdrawn_at.isoformat() if p.withdrawn_at else "", p.withdrawn_reason,
                 *[answers.get(q.pk, "") for q in questions],
             ]
 

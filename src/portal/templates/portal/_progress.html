@@ -26,7 +26,15 @@
   </div>
   <div class="card">
     <h3 style="margin-top:0">Possible duplicate submissions {% if ig.duplicates %}<span class="badge warn">{{ ig.duplicates|length }}</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>
-    {% for d in ig.duplicates %}<div class="small">{{ d.reason|capfirst }}: {% for x in d.projects %}<a href="/projects/{{ event.external_id }}/{{ x.external_id }}">{{ x.external_id }}</a> ({{ x.team.name }}, {{ x.submitted_at|date:"Y-m-d H:i" }}){% if not forloop.last %}, {% endif %}{% endfor %}</div>{% empty %}<div class="small muted">None found.</div>{% endfor %}
+    {% for d in ig.duplicates %}<div class="small" style="margin-bottom:.5rem">{{ d.reason|capfirst }}:
+      {% for x in d.projects %}<div class="row" style="align-items:center;margin:.25rem 0">
+        <div><a href="/projects/{{ event.external_id }}/{{ x.external_id }}">{{ x.external_id }}</a> {{ x.title }} ({{ x.team.name }}, {{ x.submitted_at|date:"Y-m-d H:i"|default:"draft" }}){% if x.withdrawn_at %} <span class="badge">withdrawn</span>{% endif %}</div>
+        <form method="post" action="/events/{{ event.external_id }}/dashboard" class="shrink">{% csrf_token %}<input type="hidden" name="project" value="{{ x.external_id }}">
+          {% if x.withdrawn_at %}<input type="hidden" name="action" value="restore"><button class="secondary" type="submit">Restore</button>
+          {% else %}<input type="hidden" name="action" value="withdraw"><input type="hidden" name="reason" value="{{ d.reason }} as {% for y in d.projects %}{% if y != x %}{{ y.external_id }} {% endif %}{% endfor %}"><button class="secondary" type="submit">Withdraw from judging</button>{% endif %}
+        </form></div>{% endfor %}
+      </div>{% empty %}<div class="small muted">None found.</div>{% endfor %}
+    {% if ig.duplicates %}<p class="small muted">Withdrawing keeps the project and its reviews for the record and the exports, but leaves it out of judging queues, results and the gallery. It is audited and can be undone.</p>{% endif %}
   </div>
   <div class="card">
     <h3 style="margin-top:0">Deadline edge {% if ig.late %}<span class="badge bad">{{ ig.late|length }} late</span>{% elif ig.last_minute %}<span class="badge">{{ ig.last_minute|length }} last-minute</span>{% else %}<span class="badge ok">none</span>{% endif %}</h3>

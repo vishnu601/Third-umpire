@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.storage import default_storage
 from django.db.models import Count, Max
@@ -94,6 +95,18 @@ def grant_role(event, user, role, actor=None, **fields):
     if created:
         audit(event, actor, "role.granted", user.username, role=role)
     return obj
+
+
+def add_organizer(event, actor, email):
+    """Give an existing account organizer rights on this event. Audited by grant_role."""
+    require_organizer(actor, event)
+    email = str(email or "").strip().lower()
+    user = get_user_model().objects.filter(username=email).first()
+    if user is None:
+        raise Refused(404, "no_such_account", "no account uses that email; ask them to sign up first")
+    if TeamMembership.objects.filter(event=event, user=user).exists():
+        raise Refused(409, "competing", "that person is on a team in this event")
+    return grant_role(event, user, EventRole.Role.ORGANIZER, actor=actor)
 
 
 # --- audit --------------------------------------------------------------------
@@ -681,7 +694,7 @@ def auto_assign(event, actor, per_project=None):
         members[team_id].add(user_id)
 
     projects = sorted(
-        Project.objects.filter(event=event, status=Project.Status.SUBMITTED),
+        Project.objects.filter(event=event, status=Project.Status.SUBMITTED, withdrawn_at__isnull=True),
         key=lambda p: (len(existing[p.id]), p.external_id),
     )
     created = []
@@ -713,7 +726,7 @@ def assign_batch(event, actor, judge_user, projects):
         raise Refused(400, "not_a_judge", "that person is not a judge for this event")
     made, skipped = [], []
     for project in projects:
-        if project.event_id != event.id or project.status != Project.Status.SUBMITTED:
+        if project.event_id != event.id or project.status != Project.Status.SUBMITTED or project.withdrawn_at:
             raise Refused(400, "not_assignable", f"{project.title} is not a submitted project in this event")
         if conflicted(judge_user, project):
             raise Refused(409, "conflict_of_interest", f"{judge_user.username} is on the team behind {project.title}")
@@ -737,7 +750,9 @@ def unassign(event, actor, assignment):
 
 
 def assigned_projects(judge_user, event=None):
-    qs = Project.objects.filter(assignments__judge=judge_user).select_related("event", "track", "team")
+    qs = Project.objects.filter(assignments__judge=judge_user, withdrawn_at__isnull=True).select_related(
+        "event", "track", "team"
+    )
     if event is not None:
         qs = qs.filter(event=event)
     return qs.distinct()
@@ -754,6 +769,8 @@ def save_review(project, judge_user, values, comment):
         raise Refused(403, "conflict_of_interest")
     if project.status != Project.Status.SUBMITTED:
         raise Refused(409, "not_submitted")
+    if project.withdrawn_at:
+        raise Refused(409, "withdrawn", "an organizer withdrew this project from judging")
     if not event.accepts_reviews():
         raise Refused(403, "judging_closed", "judging has closed for this event")
     if event.results_published_at:
@@ -793,7 +810,9 @@ def prize_slots(event):
 
 def _review_points(event):
     weights = {c.key: c.weight for c in event.criteria.all()}
-    reviews = Review.objects.filter(project__event=event).prefetch_related("scores__criterion")
+    reviews = Review.objects.filter(project__event=event, project__withdrawn_at__isnull=True).prefetch_related(
+        "scores__criterion"
+    )
     points, per_criterion = [], defaultdict(list)
     for r in reviews:
         values = {s.criterion.key: s.value for s in r.scores.all()}
@@ -809,7 +828,9 @@ def _review_points(event):
 def results_fingerprint(event):
     agg = Review.objects.filter(project__event=event).aggregate(n=Count("id"), last=Max("updated_at"))
     weights = tuple(event.criteria.values_list("key", "weight"))
-    return f"{event.pk}:{agg['n']}:{agg['last'].isoformat() if agg['last'] else '-'}:{weights}:{prize_slots(event)}"
+    withdrawn = tuple(event.projects.filter(withdrawn_at__isnull=False).order_by("pk").values_list("pk", flat=True))
+    return (f"{event.pk}:{agg['n']}:{agg['last'].isoformat() if agg['last'] else '-'}:{weights}:{prize_slots(event)}"
+            f":{withdrawn}")
 
 
 def event_results(event, draws=None):
@@ -915,6 +936,42 @@ def apply_tiebreaks(event, actor):
     return made
 
 
+@transaction.atomic
+def withdraw_project(event, actor, project, reason=""):
+    """Take a project out of judging (a duplicate, a rules breach). Its reviews stay, unused."""
+    require_organizer(actor, event)
+    if project.event_id != event.id:
+        raise Refused(404, "not_found")
+    if project.withdrawn_at:
+        return project
+    project.withdrawn_at = timezone.now()
+    project.withdrawn_reason = str(reason or "").strip()[:300]
+    project.save(update_fields=["withdrawn_at", "withdrawn_reason"])
+    audit(event, actor, "project.withdrawn", project.external_id, reason=project.withdrawn_reason)
+    return project
+
+
+@transaction.atomic
+def restore_project(event, actor, project):
+    require_organizer(actor, event)
+    if project.event_id != event.id:
+        raise Refused(404, "not_found")
+    if not project.withdrawn_at:
+        return project
+    project.withdrawn_at = None
+    project.withdrawn_reason = ""
+    project.save(update_fields=["withdrawn_at", "withdrawn_reason"])
+    audit(event, actor, "project.restored", project.external_id)
+    return project
+
+
+def pending_reviews(event):
+    """Assignments on projects still in judging that have no review yet."""
+    reviewed = set(Review.objects.filter(project__event=event).values_list("judge_id", "project_id"))
+    pairs = Assignment.objects.filter(event=event, project__withdrawn_at__isnull=True).values_list("judge_id", "project_id")
+    return sum(1 for pair in pairs if pair not in reviewed)
+
+
 def progress(event):
     """Assignment completion per judge and per project, for the organizer dashboard."""
     assignments = list(Assignment.objects.filter(event=event).values_list("judge_id", "project_id"))
@@ -1000,7 +1057,7 @@ def integrity_report(event):
         if (judge_id, project_id) not in reviewed:
             pending[project_id] += 1
     projects = list(Project.objects.filter(event=event).select_related("team", "track"))
-    submitted = [p for p in projects if p.status == Project.Status.SUBMITTED]
+    submitted = [p for p in projects if p.status == Project.Status.SUBMITTED and not p.withdrawn_at]
     k = event.reviews_per_project
     under = [
         {"project": p, "reviews": per_project[p.id], "pending": pending[p.id]}

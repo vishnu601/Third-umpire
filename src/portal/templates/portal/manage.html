@@ -99,9 +99,20 @@
     <p><span class="badge ok">Published</span> Anyone can see the <a href="/events/{{ event.external_id }}/results">results page</a>.</p>
     <form method="post">{% csrf_token %}<input type="hidden" name="action" value="unpublish"><button class="secondary" type="submit">Hide results again</button></form>
   {% else %}
-    <p class="muted">Results are visible only to organizers until you publish them.</p>
+    <p class="muted">Results are visible only to organizers until you publish them. Publishing freezes scores until you hide them again.</p>
+    {% if pending_reviews %}<p><span class="badge warn">{{ pending_reviews }} review{{ pending_reviews|pluralize }} still pending</span> <span class="small muted">Judges have not scored everything assigned to them. Publishing now ranks on the reviews in so far; check the <a href="/events/{{ event.external_id }}/dashboard">dashboard</a> first.</span></p>{% endif %}
     <form method="post">{% csrf_token %}<input type="hidden" name="action" value="publish"><button type="submit">Publish results</button></form>
   {% endif %}
+</div>
+
+<h2>Organizers</h2>
+<div class="card">
+  <p class="small">{% for r in organizers %}<span class="chip">{{ r.user.username }}</span>{% endfor %}</p>
+  <form method="post" class="row">{% csrf_token %}<input type="hidden" name="action" value="add_organizer">
+    <div><label class="sr-only" for="org-email">Email</label><input id="org-email" type="email" name="email" placeholder="Email of an existing account" required></div>
+    <div class="shrink"><button type="submit">Add organizer</button></div>
+  </form>
+  <p class="small muted">They need an account first, and cannot be on a team in this event. Added organizers can change everything on this page.</p>
 </div>
 
 <h2>Exports (CSV)</h2>
