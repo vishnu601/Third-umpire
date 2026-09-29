@@ -9,7 +9,7 @@ from . import scoring, services
 from .api import ApiError, api_view, json_body, require_login
 from .event_export import export_event
 from .models import (
-    Assignment, AuditLog, Comment, CriterionScore, Event, EventRole, Project, Review, Tag, TeamMembership, Track, Vote,
+    Assignment, Comment, CriterionScore, Event, EventRole, Project, Review, Tag, TeamMembership, Track, Vote,
 )
 
 # --- pages -------------------------------------------------------------------
@@ -382,7 +382,7 @@ def audit_csv(request, event_id):
     event = organizer_event(request, event_id)
     rows = (
         [e.created_at.isoformat(), e.actor.username if e.actor else "", e.action, e.target, json.dumps(e.detail, sort_keys=True)]
-        for e in AuditLog.objects.filter(event=event).select_related("actor").order_by("created_at", "id")
+        for e in services.visible_audit(event).select_related("actor").order_by("created_at", "id")
     )
     return csv_response(f"audit-{event.external_id}.csv", ["at", "actor", "action", "target", "detail"], rows)
 

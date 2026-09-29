@@ -575,6 +575,6 @@ def test_votes_json_for_an_unknown_event_is_404_and_no_window_is_404(world):
     assert client_for(world["host"]).get(f"/api/events/{world['event'].external_id}/votes").status_code == 404
 
 
-def test_fixture_event_has_no_vote_and_seed_still_runs(seeded):
-    ev = Event.objects.get()
-    assert ev.voting_phase() == "none" and ev.votes_per_voter == 3
+def test_demo_seed_gives_the_fixture_event_a_vote_and_seed_still_runs(seeded):
+    ev = Event.objects.get()  # demo mode opens a vote; without it there is none (test_review_fixes.py)
+    assert ev.voting_phase() == "open" and ev.votes_per_voter == 3

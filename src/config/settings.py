@@ -119,6 +119,8 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
         "LOCATION": os.environ.get("DJANGO_CACHE_DIR", str(REPO_DIR / ".cache")),
         "TIMEOUT": 7 * 24 * 3600,
+        # The default (300) culls entries at random once full, which would silently reset rate-limit counters.
+        "OPTIONS": {"MAX_ENTRIES": 100000},
     }
 }
 

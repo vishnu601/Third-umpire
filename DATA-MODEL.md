@@ -80,7 +80,9 @@ tool.
 | `scores[]` | `Assignment(source=import)` + `Review` + one `CriterionScore` per criterion |
 | criteria keys seen in scores | `Criterion` with weight 1 and default anchors. Existing weights are left alone, so an organizer's changes survive reboots |
 
-Imported users get unusable passwords. In demo mode, the seeded accounts also get the demo password. With demo mode
+Imported users get unusable passwords. The import also makes `organizer@example.org` an organizer of every event it
+brings in (and marks it staff), so an imported event always has one; with demo mode off that account's password is
+unusable. In demo mode, the seeded accounts also get the demo password. With demo mode
 off, the seed revokes it: fixed sessions deleted, the demo password made unusable where still set, the demo admin
 disabled.
 
@@ -113,7 +115,10 @@ the media folder are the only complete backup; the JSON export below is a migrat
 (organizers only, 401/403 otherwise, sent as an attachment) write one event in **the shape of `fixtures.json`**: the
 top-level keys `event`, `tracks`, `judges`, `teams`, `projects`, `scores`, the same field names, string ids that are
 our `external_id`s (random ones like `prj_3fa9c2d1` for rows made in the app), timestamps in ISO 8601 UTC with a `Z`.
-It is the inverse of the import: `python manage.py seed --fixtures event.json` loads it into another portal. Exporting
+It is the inverse of the import: `python manage.py seed --fixtures event.json` loads it into another portal. In
+Docker: `docker compose cp event.json portal:/data/event.json`, then
+`docker compose exec portal python manage.py seed --fixtures /data/event.json`. Any event file seeds; the demo logins
+are simply skipped for people the file lacks. Exporting
 the organisers' fixture event gives back the same data it came from (a test asserts it), and exporting an app-made
 event, wiping it and importing the file gives an event that exports identically (also tested).
 
@@ -131,7 +136,8 @@ and read back by the import when present; a portal that ignores unknown keys jus
 | `projects[]` | `description`, `demo_video_url`, `live_url`, `tags`, `withdrawn_at`, `withdrawn_reason` |
 
 **Not carried.** Uploaded files (thumbnails and gallery images: only the SQLite file plus the media folder has them);
-custom questions and each project's answers; prizes; assignments nobody has reviewed yet, and which of auto, manual or
+custom questions and each project's answers; prizes; the community-vote window (`voting_opens`, `voting_closes`,
+`votes_per_voter`), votes and comments (the votes and comments CSVs have them); assignments nobody has reviewed yet, and which of auto, manual or
 tiebreak made one (imported ones are `source=import`); organizers and co-organizers, judge invites and team invite
 tokens; the audit log (it has its own CSV); accounts, passwords, sessions, login history and any IP data (nothing of
 the kind is stored per person, and none is exported); scores are not derived values, but ranks, bias-corrected scores

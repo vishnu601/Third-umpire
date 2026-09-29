@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from portal import services
-from portal.seed import import_fixture, revoke_demo_access, set_demo_passwords, write_seeded_sessions
+from portal.seed import import_fixture, open_demo_vote, revoke_demo_access, set_demo_passwords, write_seeded_sessions
 
 
 class Command(BaseCommand):
@@ -31,6 +31,7 @@ class Command(BaseCommand):
             revoke_demo_access(event)  # demo mode off: its published cookies and password must stop working
             return
         people = set_demo_passwords(event)
+        open_demo_vote(event)
         self.stdout.write("seeded. test logins:")
         for label, header in write_seeded_sessions(event):
             self.stdout.write(f"  {label:<12} {header}")

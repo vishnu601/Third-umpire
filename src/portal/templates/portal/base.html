@@ -234,6 +234,7 @@
       <nav aria-label="Main">
         <a href="/projects">Projects</a>
         <a href="/events">Events</a>
+        {% if open_vote %}<a href="/events/{{ open_vote.external_id }}/vote">Vote</a>{% endif %}
         {% if nav_is_judge %}<a href="/judge">Judging</a>{% endif %}
       </nav>
       <div class="who">

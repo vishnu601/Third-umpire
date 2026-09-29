@@ -40,8 +40,8 @@ def test_password_guessing_on_one_account_is_throttled(db):
     User.objects.create_user("victim@example.org", "victim@example.org", "a-long-test-password")
     c = Client()
     statuses = [c.post("/login", {"username": "victim@example.org", "password": f"guess-{i}"}).status_code
-                for i in range(ratelimit.LOGIN_PER_ACCOUNT + 1)]
-    assert statuses[:-1] == [200] * ratelimit.LOGIN_PER_ACCOUNT  # form redisplayed with an error
+                for i in range(ratelimit.LOGIN_PER_ACCOUNT_AND_IP + 1)]
+    assert statuses[:-1] == [200] * ratelimit.LOGIN_PER_ACCOUNT_AND_IP  # form redisplayed with an error
     assert statuses[-1] == 429
     # the right password is refused too while the lock holds, so guessing can't be finished off
     assert c.post("/login", {"username": "victim@example.org", "password": "a-long-test-password"}).status_code == 429

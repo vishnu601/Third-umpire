@@ -190,6 +190,22 @@ def import_fixture(data):
 SEEDED_ADMIN_EMAIL = "admin@example.org"
 
 
+DEMO_VOTE_DAYS = 14
+
+
+def open_demo_vote(event):
+    """Demo mode only: give the closed fixture event a community vote, so the ballot can be tried.
+
+    Set once, when the event has no vote yet, and never moved by a reboot.
+    """
+    if event.voting_opens is not None or event.voting_closes is not None:
+        return
+    now = timezone.now()
+    event.voting_opens = max(now, event.submissions_close)
+    event.voting_closes = event.voting_opens + timedelta(days=DEMO_VOTE_DAYS)
+    event.save(update_fields=["voting_opens", "voting_closes"])
+
+
 def set_demo_passwords(event):
     """Give the seeded people a known password so the login page can be tried.
 

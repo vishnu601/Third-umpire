@@ -166,6 +166,24 @@ def validate_voting_window(fields):
         raise Refused(400, "invalid_votes_per_voter", f"votes per voter must be between 1 and {MAX_VOTES_PER_VOTER}")
 
 
+VOTING_FIELDS = ("voting_opens", "voting_closes", "votes_per_voter")
+
+
+def lock_open_voting_window(event, fields):
+    """While voting is open its rules are fixed; the close can only move later.
+
+    Closing early would reveal the tallies to whoever closed it, and changing the
+    allowance or the start mid-vote treats voters differently.
+    """
+    if event.voting_phase() != "open":
+        return
+    new = {f: fields.get(f, getattr(event, f)) for f in VOTING_FIELDS}
+    unchanged = new["voting_opens"] == event.voting_opens and new["votes_per_voter"] == event.votes_per_voter
+    if not unchanged or new["voting_closes"] is None or new["voting_closes"] < event.voting_closes:
+        raise Refused(409, "voting_window_locked",
+                      "voting is open: its start and allowance are fixed and the close can only move later")
+
+
 def validate_event_dates(opens, closes, judging_close):
     if closes is None:
         raise Refused(400, "invalid_dates", "a submission deadline is required")
@@ -194,6 +212,7 @@ def create_event(actor, **fields):
 def update_event(event, actor, **fields):
     require_organizer(actor, event)
     validate_event_fields(fields)
+    lock_open_voting_window(event, fields)
     before = {f: getattr(event, f) for f in fields}
     for name, value in fields.items():
         setattr(event, name, value)
@@ -1152,8 +1171,13 @@ def ballot_order(event, user, projects):
     return ordered
 
 
+def votes_used(user, event):
+    """Votes that still count: a vote on a project an organizer withdrew is given back."""
+    return Vote.objects.filter(voter=user, event=event, project__withdrawn_at__isnull=True).count()
+
+
 def votes_left(user, event):
-    return max(0, event.votes_per_voter - Vote.objects.filter(voter=user, event=event).count())
+    return max(0, event.votes_per_voter - votes_used(user, event))
 
 
 def vote_conflict(user, event):
@@ -1202,7 +1226,7 @@ def cast_vote(project, user, ip=""):
     try:
         with transaction.atomic():
             vote = Vote.objects.create(event=event, project=project, voter=user, ip_hash=ip_hash(ip))
-            if Vote.objects.filter(voter=user, event=event).count() > event.votes_per_voter:  # lost a race
+            if votes_used(user, event) > event.votes_per_voter:  # lost a race
                 raise Refused(409, "no_votes_left", "you have used all your votes")
             audit(event, user, "vote.cast", project.external_id)
     except IntegrityError:  # the unique constraint caught a concurrent double vote
@@ -1275,7 +1299,7 @@ def vote_integrity_report(event):
     """Patterns that suggest ballot stuffing. Flags are for a human to look at; nothing is removed.
 
     - shared_ip: SHARED_IP_VOTERS or more distinct accounts behind one hashed address voted for the same project;
-    - new_accounts: the voter's account was created after voting opened.
+    - new_accounts (informational): the voter's account was created after voting opened.
     `flags` maps a vote's id to its reasons, for the CSV.
     """
     votes = list(Vote.objects.filter(event=event).select_related("project", "voter"))
@@ -1302,8 +1326,16 @@ def vote_integrity_report(event):
         "shared_ip": sorted(shared, key=lambda s: (-s["accounts"], s["project"].external_id)),
         "new_accounts": late,
         "flags": dict(flags),
-        "issues": len(shared) + len(late),
+        "issues": len(shared),  # new accounts are how most real voters arrive: a count, not a warning
     }
+
+
+def visible_audit(event):
+    """The event's audit rows an organizer may read now. Vote rows name a project, so they wait for the close."""
+    entries = AuditLog.objects.filter(event=event)
+    if event.voting_phase() in ("not_open", "open"):
+        entries = entries.exclude(action__startswith="vote.")
+    return entries
 
 
 def voting_summary(event):
@@ -1344,6 +1376,8 @@ def delete_comment(comment, user):
     require_login(user)
     if comment.author_id != user.pk:
         raise Refused(403, "not_your_comment", "you can only delete your own comments")
+    if comment.hidden_at:
+        raise Refused(409, "comment_hidden", "an organizer hid this comment; it stays on record")
     audit(comment.project.event, user, "comment.deleted", comment.project.external_id, comment=comment.pk)
     comment.delete()
 
@@ -1359,7 +1393,8 @@ def hide_comment(comment, actor, reason):
         return comment
     comment.hidden_at, comment.hidden_by, comment.hidden_reason = timezone.now(), actor, reason
     comment.save(update_fields=["hidden_at", "hidden_by", "hidden_reason"])
-    audit(event, actor, "comment.hidden", comment.project.external_id, comment=comment.pk, reason=reason)
+    audit(event, actor, "comment.hidden", comment.project.external_id, comment=comment.pk, reason=reason,
+          body=comment.body)
     return comment
 
 

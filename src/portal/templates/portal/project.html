@@ -9,6 +9,7 @@
       {% if project.tagline %}<p style="font-size:1.1rem;margin:.25rem 0">{{ project.tagline }}</p>{% endif %}
       <p class="muted small">{{ project.team.name }}{% if project.track %} · {{ project.track.name }}{% endif %}
         {% if project.status == "draft" %} <span class="badge warn">Draft, not public</span>{% else %} · submitted {{ project.submitted_at|date:"Y-m-d H:i" }} UTC{% endif %}</p>
+      {% if project.event.voting_phase == "open" and not project.withdrawn_at %}<p><a class="btn secondary" href="/events/{{ project.event.external_id }}/vote">Vote in the people's choice</a></p>{% endif %}
       {% if project.withdrawn_at %}<p><span class="badge warn">Withdrawn from judging</span>{% if project.withdrawn_reason %} <span class="small muted">{{ project.withdrawn_reason }}</span>{% endif %}</p>{% endif %}
       {% if can_edit %}<a class="btn secondary" href="/teams/{{ project.team.external_id }}/project/{{ project.external_id }}">Edit</a>{% endif %}
     </div>

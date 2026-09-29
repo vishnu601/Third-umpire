@@ -26,7 +26,6 @@ from django.views.static import serve
 from . import ratelimit, services
 from .models import (
     Assignment,
-    AuditLog,
     Comment,
     Criterion,
     Event,
@@ -131,8 +130,10 @@ _login = LoginView.as_view(template_name="portal/login.html", authentication_for
 def login_view(request):
     """Django's login, behind a per-account and a per-address limit on attempts."""
     if request.method == "POST":
-        ratelimit.hit("login-ip", ratelimit.client_ip(request), ratelimit.LOGIN_PER_IP, ratelimit.LOGIN_WINDOW)
-        account = (request.POST.get("username") or "").strip().lower()
+        ip = ratelimit.client_ip(request)
+        account = ratelimit.account_key(request.POST.get("username"))
+        ratelimit.hit("login-ip", ip, ratelimit.LOGIN_PER_IP, ratelimit.LOGIN_WINDOW)
+        ratelimit.hit("login-account-ip", f"{account}|{ip}", ratelimit.LOGIN_PER_ACCOUNT_AND_IP, ratelimit.LOGIN_WINDOW)
         ratelimit.hit("login-account", account, ratelimit.LOGIN_PER_ACCOUNT, ratelimit.LOGIN_WINDOW)
     return _login(request)
 
@@ -753,7 +754,7 @@ AUDIT_GROUPS = ["deadline", "project", "team", "review", "assignments", "judge",
 def audit_log(request, event_id):
     event = get_object_or_404(Event, external_id=event_id)
     services.require_organizer(request.user, event)
-    entries = AuditLog.objects.filter(event=event).select_related("actor")
+    entries = services.visible_audit(event).select_related("actor")
     action = request.GET.get("action", "").strip()
     if action:
         entries = entries.filter(action__startswith=action)

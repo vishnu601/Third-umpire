@@ -12,14 +12,17 @@ stored in the cache in the clear.
 """
 
 import hashlib
+import ipaddress
 import time
+import unicodedata
 
 from django.conf import settings
 from django.core.cache import cache
 
 from .errors import Refused
 
-LOGIN_PER_ACCOUNT = 10  # attempts per account per window
+LOGIN_PER_ACCOUNT_AND_IP = 10  # guesses at one account from one address
+LOGIN_PER_ACCOUNT = 100  # from anywhere: high, so a stranger can't lock a named judge out
 LOGIN_PER_IP = 50  # a venue's shared NAT address needs headroom
 LOGIN_WINDOW = 15 * 60
 SIGNUP_WINDOW = 60 * 60  # per-address signups: settings.DOGFOOD_RATE_LIMITS_SIGNUP_PER_IP
@@ -55,5 +58,23 @@ def client_ip(request):
     if hops:
         chain = [p.strip() for p in request.META.get("HTTP_X_FORWARDED_FOR", "").split(",") if p.strip()]
         if len(chain) >= hops:
-            return chain[-hops]
-    return request.META.get("REMOTE_ADDR", "")
+            return _bucket(chain[-hops])
+    return _bucket(request.META.get("REMOTE_ADDR", ""))
+
+
+def _bucket(ip):
+    """IPv6 counts per /64 (one household or host can rotate through the rest); no address is one shared bucket."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip or "unknown"
+    if addr.version == 6:
+        if addr.ipv4_mapped:
+            return str(addr.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False))
+    return str(addr)
+
+
+def account_key(raw):
+    """The login name as Django's form will read it (NFKC, then our lower-casing), so variants share a counter."""
+    return unicodedata.normalize("NFKC", str(raw or "")).strip().lower()
